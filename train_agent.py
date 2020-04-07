@@ -82,17 +82,18 @@ def expert_dataset(name):
 
 def main():
     global model, best_model_path, last_model_path
-    mission = 'PushStonesEnv' # Change according to algorithm
+    # mission = 'PushStonesEnv' # Change according to algorithm
+    mission = 'PickUpEnv'
     env = gym.make(mission + '-v0').unwrapped
 
     # Create log and model dir
-    # dir = 'stable_bl/' + mission
-    dir = 'stable_bl/PushMultipleStones'
+    dir = 'stable_bl/' + mission
+    # dir = 'stable_bl/PushMultipleStones'
     os.makedirs(dir + '/model_dir/sac', exist_ok=True)
 
     jobs = ['train', 'record', 'BC_agent', 'play']
     job = jobs[0]
-    pretrain = True
+    pretrain = False
 
     if job == 'train':
 

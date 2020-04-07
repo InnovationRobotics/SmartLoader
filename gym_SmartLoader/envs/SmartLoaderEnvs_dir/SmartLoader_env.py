@@ -133,7 +133,7 @@ class BaseEnv(gym.Env):
         # self.setDebugAction(action) # DEBUG
         joyactions = self.AgentToJoyAction(agent_action)  # clip actions to fit action_size
 
-        joymessage.axes = [joyactions[0], 0., joyactions[2], 0., joyactions[4], joyactions[5], 0., 0.]
+        joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
 
         self.joypub.publish(joymessage)
         rospy.logdebug(joymessage)
@@ -150,7 +150,7 @@ class BaseEnv(gym.Env):
         joyactions = np.zeros(6)
 
         joyactions[0] = agent_action[0] # vehicle turn
-        # self.joyactions[3] = agent_action[2] # blade pitch
+        joyactions[3] = agent_action[3] # blade pitch
         joyactions[4] = agent_action[2] # arm up/down
 
         # translate 4 dim agent action to 5 dim simulation action
@@ -187,7 +187,7 @@ class BaseEnv(gym.Env):
         return agent_action
 
 
-    def __init__(self,numStones=3):
+    def __init__(self,numStones=1):
         super(BaseEnv, self).__init__()
 
         print('environment created!')
@@ -220,7 +220,7 @@ class BaseEnv(gym.Env):
         self.stonePoseSubList = []
         self.stoneIsLoadedSubList = []
 
-        for i in range(1, self.numStones+2):
+        for i in range(1, self.numStones+1):
             topicName = 'stone/' + str(i) + '/Pose'
             self.stonePoseSubList.append(rospy.Subscriber(topicName, PoseStamped, self.StonePositionCB, i))
             # topicName = 'stone/' + str(i) + '/IsLoaded'
@@ -231,8 +231,8 @@ class BaseEnv(gym.Env):
         self.joypub = rospy.Publisher("joy", Joy, queue_size=10)
 
         ## Define gym space
-        min_action = np.array(3*[-1.])
-        max_action = np.array(3*[ 1.])
+        min_action = np.array(4*[-1.])
+        max_action = np.array(4*[ 1.])
         # self.action_size = 4  # all actions
         # self.action_size = 3  # no pitch
         # self.action_size = 2  # without arm actions
@@ -261,25 +261,21 @@ class BaseEnv(gym.Env):
         max_lin_acc = np.array(3*[ 1])
         min_arm_height = np.array([0.])
         max_arm_height = np.array([100.])
-        # SPACES DICT:
-        # obsSpace = spaces.Dict({"VehiclePos": spaces.Box(low=self.min_pos, high=self.max_pos),
-        #                         "VehicleOrien": spaces.Box(low=min_quat, high=max_quat),
-        #                         "VehicleLinearVel": spaces.Box(low=min_lin_vel, high=max_lin_vel),
-        #                         "VehicleAngularVel": spaces.Box(low=min_ang_vel, high=max_ang_vel),
-        #                         "ArmHeight": spaces.Box(low=np.array([0.]), high=np.array([100.])),
-        #                         "BladeOrien": spaces.Box(low=min_quat, high=max_quat),
-        #                         "BladeAngularVel": spaces.Box(low=min_ang_vel, high=max_ang_vel),
-        #                         "BladeLinearAcc": spaces.Box(low=min_lin_acc, high=max_max_acc),
-        #                         "Stones": spaces.Dict(self.obs_stones())})
 
-        # SPACES BOX - WITHOUT IS LOADED
+        # FIRST STATE SPACE
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","ArmHeight","BladeOrien","BladeAngularVel","BladeLinearAcc","Stones"]
         # low  = np.concatenate((min_pos,min_quat,min_lin_vel,min_ang_vel,min_arm_height,min_quat,min_ang_vel,min_lin_acc), axis=None)
         # high = np.concatenate((max_pos,max_quat,max_lin_vel,max_ang_vel,max_arm_height,max_quat,max_ang_vel,max_lin_acc), axis=None)
 
         # NEW SMALLER STATE SPACE:
-        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","Stones"]
-        low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height))
-        high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height))
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","Stones"]
+        # low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height))
+        # high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height))
+
+        # PICK UP ENV STATE SPACE
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","BladeOrien","Stones"]
+        low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height, min_quat))
+        high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height, max_quat))
 
         for ind in range(1, self.numStones + 1):
             low  = np.concatenate((low, min_pos), axis=None)
@@ -293,8 +289,10 @@ class BaseEnv(gym.Env):
         obs = np.array([])
         # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel',
         #         'ArmHeight', 'BladeOrien', 'BladeAngularVel', 'BladeLinearAcc']
-        keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
+        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
         # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'ArmHeight']  ### reduced state space
+        keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU',
+                'ArmHeight', 'BladeOrien'] # PICK UP ENV STATE SPACE
 
         while True: # wait for all topics to arrive
             if all(key in self.world_state for key in keys):
@@ -303,7 +301,8 @@ class BaseEnv(gym.Env):
         for key in keys:
             item = np.copy(self.world_state[key])
             if self.normalized and key == 'VehiclePos':
-                item -= self.stone_ref
+                item -= self.stones['StonePos1']
+                # item -= self.stone_ref
             obs = np.concatenate((obs, item), axis=None)
 
         for ind in range(1, self.numStones+1):
@@ -336,7 +335,8 @@ class BaseEnv(gym.Env):
 
         self.episode = EpisodeManager()
         # self.episode.generateAndRunWholeEpisode(typeOfRand="verybasic") # for NUM_STONES = 1
-        self.episode.generateAndRunWholeEpisode(typeOfRand="MultipleRocks", numstones=self.numStones)
+        # self.episode.generateAndRunWholeEpisode(typeOfRand="MultipleRocks", numstones=self.numStones)
+        self.episode.generateAndRunWholeEpisode(typeOfRand="PickUpEpisode", numstones=self.numStones)
         self.simOn = True
 
     def reset(self):
@@ -356,7 +356,7 @@ class BaseEnv(gym.Env):
         # wait for simulation to set up
         while True: # wait for all topics to arrive
             # change to 2*numStones when IsLoaded is fixed
-            if bool(self.world_state) and bool(self.stones) and len(self.stones) == self.numStones + 1:
+            if bool(self.world_state) and bool(self.stones): # and len(self.stones) == self.numStones + 1:
                 break
 
         # wait for simulation to stabilize, stones stop moving
@@ -371,19 +371,20 @@ class BaseEnv(gym.Env):
 
         # for MULTIPLE STONES - with regards to vehicle (Benny: 7-16)
 
-        self.stone_ref = self.stones['StonePos{}'.format(self.numStones + 1)]
+        # self.stone_ref = self.stones['StonePos{}'.format(self.numStones + 1)]
+        self.stone_ref = self.stones['StonePos1']
 
         # # blade down near ground
         # for _ in range(30000):
         #     self.blade_down()
-        # DESIRED_ARM_HEIGHT = 22
-        # while self.world_state['ArmHeight'] > DESIRED_ARM_HEIGHT:
-        #     self.blade_down()
+        DESIRED_ARM_HEIGHT = 22
+        while self.world_state['ArmHeight'] > DESIRED_ARM_HEIGHT:
+            self.blade_down()
 
         # get observation from simulation
         obs = self.current_obs() # without waiting for obs to updated
 
-        self.init_dis = np.sqrt(np.sum(np.power(obs[0:3], 2)))
+        # self.init_dis = np.sqrt(np.sum(np.power(obs[0:3], 2)))
 
         self.boarders = self.scene_boarders()
 
@@ -433,7 +434,8 @@ class BaseEnv(gym.Env):
         if done:
             self.world_state = {}
             self.stones = {}
-            print('stone to desired distance =', self.init_dis, ', total reward = ', self.total_reward)
+            # print('stone to desired distance =', self.init_dis, ', total reward = ', self.total_reward)
+            print('total reward = ', self.total_reward)
 
         info = {"state": obs, "action": action, "reward": self.total_reward, "step": self.steps, "reset reason": reset}
 
@@ -448,15 +450,15 @@ class BaseEnv(gym.Env):
     def scene_boarders(self):
         # define scene boarders depending on vehicle and stone initial positions and desired pose
         init_vehicle_pose = self.world_state['VehiclePos']
-        vehicle_box = self.pose_to_box(init_vehicle_pose, box=5)
+        vehicle_box = self.pose_to_box(init_vehicle_pose, box=2)
 
         stones_box = []
         for stone in range(1, self.numStones + 1):
             init_stone_pose = self.stones['StonePos' + str(stone)]
-            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=5))
+            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=2))
 
         scene_boarders = self.containing_box(vehicle_box, stones_box)
-        scene_boarders = self.containing_box(scene_boarders, self.pose_to_box(self.stone_ref[0:2], box=5)) # box=1
+        # scene_boarders = self.containing_box(scene_boarders, self.pose_to_box(self.stone_ref[0:2], box=5)) # box=1
 
         return scene_boarders
 
@@ -479,13 +481,6 @@ class BaseEnv(gym.Env):
         # check if vehicle is out of scene boarders
         boarders = self.boarders
         curr_vehicle_pose = np.copy(self.world_state['VehiclePos'])
-
-        # print('boarders = ', boarders)
-        # print('curr vehicle pose = ', curr_vehicle_pose)
-
-        # if self.steps < 2:
-        #     print(boarders)
-        #     print(curr_vehicle_pose)
 
         if (curr_vehicle_pose[0] < boarders[0] or curr_vehicle_pose[0] > boarders[1] or
                 curr_vehicle_pose[1] < boarders[2] or curr_vehicle_pose[1] > boarders[3]):
@@ -516,39 +511,43 @@ class BaseEnv(gym.Env):
                 # self.rate.sleep()
 
 
-
 class PickUpEnv(BaseEnv):
     def __init__(self, numStones=1): #### Number of stones ####
         BaseEnv.__init__(self, numStones)
-        # initial state depends on environment (mission)
-        # self.stones_on_ground = self.numStones*[True]
-        self.current_stone_height = {}
-        self.last_stone_height = {}
+        self._prev_stone_height = 0
+        self._prev_dis_blade_stone = 0
 
     def reward_func(self):
         # reward per step
-        reward = -0.1
+        reward = 0
 
-        # IS LOADED
-        # SINGLE_STONE_IN_BLADE = 1000
-        # for stone in range(self.numStones+1):
-        #     if self.stones_on_ground[stone]:
-        #         if 'StoneIsLoaded' + str(stone) in self.stones:
-        #             if self.stones['StoneIsLoaded' + str(stone)]:
-        #                 reward += SINGLE_STONE_IN_BLADE
-        #                 self.stones_on_ground[stone] = False
+        # reward for getting the blade closer to stone
+        BLADE_CLOSER = 0.1
+        self.current_dis_blade_stone = self.sqr_dis_blade_stone()
+        reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
+
+        STONE_UP = 1
+        self.current_stone_height = self.world_state['ArmHeight']
+        reward += STONE_UP * (self.current_stone_height - self._prev_stone_height)
+
+        BLADE_UNDER_STONE = 0.5
+        if self.current_stone_height > self.stones['StonePos1'][2]:
+            reward -= BLADE_UNDER_STONE
+
+        self._prev_dis_blade_stone = self.current_dis_blade_stone
+        self._prev_stone_height = self.world_state['ArmHeight']
 
         # Stone height
-        STONE_UP = 10
-        for stone in range(1, self.numStones + 1):
-            self.current_stone_height['stoneHeight'+str(stone)] = self.stones['StonePos'+str(stone)][2]
-
-            if bool(self.last_stone_height): # don't enter first time when last_stone_height is empty
-                if self.current_stone_height['stoneHeight'+str(stone)] > self.last_stone_height['stoneHeight'+str(stone)]:
-                    reward += STONE_UP
-                    rospy.loginfo('---------------- positive reward! ----------------')
-
-            self.last_stone_height['stoneHeight' + str(stone)] = self.current_stone_height['stoneHeight' + str(stone)]
+        # STONE_UP = 10
+        # for stone in range(1, self.numStones + 1):
+        #     self.current_stone_height['stoneHeight'+str(stone)] = self.stones['StonePos'+str(stone)][2]
+        #
+        #     if bool(self.last_stone_height): # don't enter first time when last_stone_height is empty
+        #         if self.current_stone_height['stoneHeight'+str(stone)] > self.last_stone_height['stoneHeight'+str(stone)]:
+        #             reward += STONE_UP
+        #             rospy.loginfo('---------------- positive reward! ----------------')
+        #
+        #     self.last_stone_height['stoneHeight' + str(stone)] = self.current_stone_height['stoneHeight' + str(stone)]
 
         return reward
 
@@ -557,7 +556,16 @@ class PickUpEnv(BaseEnv):
         reset = 'No'
         final_reward = 0
 
-        MAX_STEPS = 6000 # 10 = 1 second
+        FINAL_REWARD = 1000
+        if self.out_of_boarders():
+            done = True
+            reset = 'out of boarders'
+            print('----------------', reset, '----------------')
+            final_reward = - FINAL_REWARD
+            self.episode.killSimulation()
+            self.simOn = False
+
+        MAX_STEPS = 1000
         if self.steps > MAX_STEPS:
             done = True
             reset = 'limit time steps'
@@ -565,25 +573,44 @@ class PickUpEnv(BaseEnv):
             self.episode.killSimulation()
             self.simOn = False
 
-        # IS LOADED
-        # if not all(self.stones_on_ground):
-        #     done = True
-        #     reset = 'sim success'
-        #     print('----------------', reset, '----------------')
-        #     self.episode.killSimulation()
-
         # Stone height
-        HEIGHT_LIMIT = 100
-        if all(height >= HEIGHT_LIMIT for height in self.current_stone_height.values()):
+        HEIGHT_LIMIT = 50
+        if self.current_stone_height >= HEIGHT_LIMIT:
             done = True
             reset = 'sim success'
             print('----------------', reset, '----------------')
+            final_reward = FINAL_REWARD
             self.episode.killSimulation()
             self.simOn = False
 
         self.steps += 1
 
         return done, final_reward, reset
+
+    def blade_pose(self):
+        L = 0.75 # distance from center of vehicle to blade BOBCAT
+        r = R.from_quat(self.world_state['VehicleOrien'])
+
+        blade_pose = self.world_state['VehiclePos'] + L*r.as_rotvec()
+
+        return blade_pose
+
+    def sqr_dis_blade_stone(self):
+        # list of distances from blade to stones
+
+        blade_pose = self.blade_pose()
+        stone_pose = self.stones['StonePos1']
+        sqr_dis = self.squared_dis(blade_pose, stone_pose)
+
+        return sqr_dis
+
+    def squared_dis(self, p1, p2):
+        # calc distance between two points
+        # p1,p2 = [x,y,z]
+
+        squared_dis = pow(p1[0]-p2[0], 2) + pow(p1[1]-p2[1], 2) + pow(p1[2]-p2[2], 2)
+
+        return squared_dis
 
 
 class PutDownEnv(BaseEnv):
