@@ -4,8 +4,8 @@ import os
 from stable_baselines.sac.policies import MlpPolicy as sac_MlpPolicy
 from stable_baselines.ddpg.policies import MlpPolicy as ddpg_MlpPolicy
 from stable_baselines.common.policies import MlpPolicy as Common_MlpPolicy
-
 from stable_baselines.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise, AdaptiveParamNoiseSpec
+from stable_baselines.gail import ExpertDataset
 from stable_baselines import TRPO
 from stable_baselines import DDPG
 from stable_baselines import PPO1
@@ -16,6 +16,8 @@ import gym
 import gym_SmartLoader.envs
 import time
 import numpy as np
+from typing import Dict
+from tempfile import TemporaryFile
 import csv
 
 n_steps = 0
@@ -47,26 +49,50 @@ def data_saver(obs, act, rew, dones, ep_rew):
     np.save('/home/graphics/git/SmartLoader/saved_ep/act', act)
     np.save('/home/graphics/git/SmartLoader/saved_ep/rew', rew)
 
-    starts = [False] * len(dones)
-    starts[0] = True
+    ep_str = [False] * len(dones)
+    ep_str[0] = True
 
     for i in range(len(dones) - 1):
         if dones[i]:
-            starts[i + 1] = True
+            ep_str[i + 1] = True
 
     np.save('/home/graphics/git/SmartLoader/saved_ep/ep_str', ep_str)
     np.save('/home/graphics/git/SmartLoader/saved_ep/ep_ret', ep_rew)
 
+
+def expert_dataset(name):
+    # Benny's recordings to dict
+    path = os.getcwd() + '/' + name
+    numpy_dict = {
+        'actions': np.load(path + '/act.npy'),
+        'obs': np.load(path + '/obs.npy'),
+        'rewards': np.load(path + '/rew.npy'),
+        'episode_returns': np.load(path + '/ep_ret.npy'),
+        'episode_starts': np.load(path + '/ep_str.npy')
+    } # type: Dict[str, np.ndarray]
+
+    # for key, val in numpy_dict.items():
+    #     print(key, val.shape)
+
+    # dataset = TemporaryFile()
+    save_path = os.getcwd() + '/dataset'
+    os.makedirs(save_path)
+    np.savez(save_path, **numpy_dict)
+
+
 def main():
     global model, best_model_path, last_model_path
-
-
-    jobs = ['train', 'record', 'BC_agent' , 'play']
-
-    job = jobs[1]
+    mission = 'PushStonesEnv' # Change according to algorithm
+    env = gym.make(mission + '-v0').unwrapped
 
     # Create log and model dir
+    # dir = 'stable_bl/' + mission
+    dir = 'stable_bl/PushMultipleStones'
+    os.makedirs(dir + '/model_dir/sac', exist_ok=True)
 
+    jobs = ['train', 'record', 'BC_agent', 'play']
+    job = jobs[0]
+    pretrain = True
 
     if job == 'train':
 

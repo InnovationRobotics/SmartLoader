@@ -815,8 +815,8 @@ class PushStonesEnv(BaseEnv):
 
         dis = []
         for stone in range(1, self.numStones + 1):
-            current_pos = self.stones['StonePos' + str(stone)][0:2] - self.stone_ref[0:2]
-            dis.append(np.linalg.norm(current_pos))
+            current_pos = self.stones['StonePos' + str(stone)][0:2]
+            dis.append(np.linalg.norm(current_pos - self.stone_ref[0:2]))
 
         return dis
 
