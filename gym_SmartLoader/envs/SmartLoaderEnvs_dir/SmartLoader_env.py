@@ -204,6 +204,8 @@ class BaseEnv(gym.Env):
         self.last_obs = np.array([])
         self.TIME_STEP = 0.05 # 10 mili-seconds
 
+        self.hist_size = 5
+
         self.normalized = True
 
         ## ROS messages
@@ -284,7 +286,7 @@ class BaseEnv(gym.Env):
         for ind in range(1, self.numStones + 1):
             low  = np.concatenate((low, min_pos), axis=None)
             high = np.concatenate((high, max_pos), axis=None)
-        obsSpace = spaces.Box(low=low, high=high)
+        obsSpace = spaces.Box(low=np.array([low]*self.hist_size).flatten(), high=np.array([low]*self.hist_size).flatten())
 
         return obsSpace
 
@@ -349,6 +351,7 @@ class BaseEnv(gym.Env):
         self.steps = 0
         self.total_reward = 0
         self.boarders = []
+        self.obs = []
 
         # initial state depends on environment (mission)
         self.init_env()
@@ -381,15 +384,16 @@ class BaseEnv(gym.Env):
         #     self.blade_down()
 
         # get observation from simulation
-        obs = self.current_obs() # without waiting for obs to updated
+        for _ in range(self.hist_size):
+            self.obs.append(self.current_obs())
 
-        self.init_dis = np.sqrt(np.sum(np.power(obs[0:3], 2)))
+        self.init_dis = np.sqrt(np.sum(np.power(self.current_obs()[0:3], 2)))
 
         self.boarders = self.scene_boarders()
 
         self.joycon = 'waiting'
 
-        return obs
+        return np.array(self.obs).flatten()
 
 
     def step(self, action):
@@ -419,7 +423,8 @@ class BaseEnv(gym.Env):
             self.do_action(action)
 
         # get observation from simulation
-        obs = self.current_obs()
+        self.obs.pop(0)
+        self.obs.append(self.current_obs())
 
         # calc step reward and add to total
         r_t = self.reward_func()
@@ -435,9 +440,9 @@ class BaseEnv(gym.Env):
             self.stones = {}
             print('stone to desired distance =', self.init_dis, ', total reward = ', self.total_reward)
 
-        info = {"state": obs, "action": action, "reward": self.total_reward, "step": self.steps, "reset reason": reset}
+        info = {"state": self.obs, "action": action, "reward": self.total_reward, "step": self.steps, "reset reason": reset}
 
-        return obs, step_reward, done, info
+        return np.array(self.obs).flatten(), step_reward, done, info
 
     def blade_down(self):
         # take blade down near ground at beginning of episode
@@ -690,7 +695,7 @@ class MoveWithStonesEnv(BaseEnv):
 
 
 class PushStonesEnv(BaseEnv):
-    def __init__(self, numStones=3):
+    def __init__(self, numStones=1):
         BaseEnv.__init__(self, numStones)
 
         # self._prev_mean_sqr_blade_dis = 9
