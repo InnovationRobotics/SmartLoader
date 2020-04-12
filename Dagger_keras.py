@@ -95,7 +95,7 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
         tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
 
     else:   ### load existing sequential model
-       model = load_model('/home/graphics/git/SmartLoader/1_rock_hist_model_0')
+       model = load_model('/home/graphics/git/SmartLoader/saved_models/1_rock_hist_model_2')
 
     if train:   ## train new agent
 
@@ -151,7 +151,7 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
 
             env.close()
 
-    print(' ------------ now lets compare -------------')
+    print(' ------------ now lets test performance -------------')
 
     env = gym.make(env_id).unwrapped
 

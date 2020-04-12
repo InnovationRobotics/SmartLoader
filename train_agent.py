@@ -91,7 +91,7 @@ def main():
     os.makedirs(dir + '/model_dir/sac', exist_ok=True)
 
     jobs = ['train', 'record', 'BC_agent', 'play']
-    job = jobs[0]
+    job = jobs[1]
     pretrain = True
 
     if job == 'train':
@@ -245,7 +245,7 @@ def main():
 
 
 
-        data_saver(obs, actions, rewards, dones, episode_rewards)
+        # data_saver(obs, actions, rewards, dones, episode_rewards)
 
     elif job == 'play':
         # env = gym.make('PickUpEnv-v0')
