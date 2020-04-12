@@ -125,9 +125,9 @@ def main():
 
         # SAC - start learning from scratch
         model = SAC(sac_MlpPolicy, env, gamma=0.99, learning_rate=1e-4, buffer_size=500000,
-             learning_starts=0, train_freq=1, batch_size=64,
-             tau=0.01, ent_coef='auto', target_update_interval=1,
-             gradient_steps=1, target_entropy='auto', action_noise=None,
+             learning_starts=0, train_freq=8, batch_size=64,
+             tau=0.01, ent_coef='auto', target_update_interval=4,
+             gradient_steps=4, target_entropy='auto', action_noise=None,
              random_exploration=0.0, verbose=2, tensorboard_log=log_dir,
              _init_setup_model=True, full_tensorboard_log=True,
              seed=None, n_cpu_tf_sess=None)
@@ -161,10 +161,10 @@ def main():
         # model = SAC.load(dir + '/model_dir/sac/test_' + k + '_' + date + '_' + latest_hour[0] + '_' + latest_min + 'zip',
         #                  env=env, custom_objects=dict(learning_starts=0))
 
-        # model = SAC.load(dir + '/model_dir/sac/test_53_rew_24383.0',
+        # model = SAC.load(dir + '/model_dir/sac/test_0_11_16_2.zip',
         #                  env=env, tensorboard_log=log_dir,
-        #                  custom_objects=dict(learning_starts=0, learning_rate=2e-4,
-        #                                      train_freq=8, gradient_steps=4, target_update_interval=4))
+        #                  custom_objects=dict(learning_starts=0)) #, learning_rate=2e-4,
+        #                                      # train_freq=8, gradient_steps=4, target_update_interval=4))
         # #                                              # batch_size=32))
 
         # pretrain
@@ -250,7 +250,7 @@ def main():
 
     elif job == 'play':
         # env = gym.make('PickUpEnv-v0')
-        model = SAC.load(dir + '/model_dir/sac/test_25_25_14_15', env=env, custom_objects=dict(learning_starts=0)) ### ADD NUM
+        model = SAC.load(dir + '/model_dir/sac/test_0_11_16_2.zip', env=env, custom_objects=dict(learning_starts=0)) ### ADD NUM
 
         for _ in range(2):
 

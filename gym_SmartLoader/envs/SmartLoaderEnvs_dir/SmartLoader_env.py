@@ -455,7 +455,7 @@ class BaseEnv(gym.Env):
         stones_box = []
         for stone in range(1, self.numStones + 1):
             init_stone_pose = self.stones['StonePos' + str(stone)]
-            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=2))
+            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=3))
 
         scene_boarders = self.containing_box(vehicle_box, stones_box)
         # scene_boarders = self.containing_box(scene_boarders, self.pose_to_box(self.stone_ref[0:2], box=5)) # box=1
@@ -514,7 +514,9 @@ class BaseEnv(gym.Env):
 class PickUpEnv(BaseEnv):
     def __init__(self, numStones=1): #### Number of stones ####
         BaseEnv.__init__(self, numStones)
+        self.current_stone_height = 0
         self._prev_stone_height = 0
+        self.current_dis_blade_stone = 0
         self._prev_dis_blade_stone = 0
 
     def reward_func(self):
@@ -526,16 +528,16 @@ class PickUpEnv(BaseEnv):
         self.current_dis_blade_stone = self.sqr_dis_blade_stone()
         reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
 
-        STONE_UP = 1
-        self.current_stone_height = self.world_state['ArmHeight']
+        STONE_UP = 1.0
+        self.current_stone_height = self.stones['StonePos1'][2]
         reward += STONE_UP * (self.current_stone_height - self._prev_stone_height)
 
-        BLADE_UNDER_STONE = 0.5
-        if self.current_stone_height > self.stones['StonePos1'][2]:
-            reward -= BLADE_UNDER_STONE
+        BLADE_OVER_STONE = 1.0
+        if self.world_state['ArmHeight'] > self.current_stone_height:
+            reward -= BLADE_OVER_STONE
 
         self._prev_dis_blade_stone = self.current_dis_blade_stone
-        self._prev_stone_height = self.world_state['ArmHeight']
+        self._prev_stone_height = self.current_stone_height
 
         # Stone height
         # STONE_UP = 10
