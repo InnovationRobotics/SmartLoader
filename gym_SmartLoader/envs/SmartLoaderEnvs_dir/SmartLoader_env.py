@@ -204,7 +204,7 @@ class BaseEnv(gym.Env):
         self.last_obs = np.array([])
         self.TIME_STEP = 0.05 # 10 mili-seconds
 
-        self.hist_size = 5
+        self.hist_size = 1
 
         self.normalized = True
 
@@ -295,8 +295,9 @@ class BaseEnv(gym.Env):
         obs = np.array([])
         # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel',
         #         'ArmHeight', 'BladeOrien', 'BladeAngularVel', 'BladeLinearAcc']
-        keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
-        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'ArmHeight']  ### reduced state space
+        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
+        keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU',
+                'ArmHeight', 'BladeOrien'] # PICK UP ENV STATE SPACE
 
         while True: # wait for all topics to arrive
             if all(key in self.world_state for key in keys):
@@ -525,35 +526,42 @@ class BaseEnv(gym.Env):
 class PickUpEnv(BaseEnv):
     def __init__(self, numStones=1): #### Number of stones ####
         BaseEnv.__init__(self, numStones)
-        # initial state depends on environment (mission)
-        # self.stones_on_ground = self.numStones*[True]
-        self.current_stone_height = {}
-        self.last_stone_height = {}
+        self.current_stone_height = 0
+        self._prev_stone_height = 0
+        self.current_dis_blade_stone = 0
+        self._prev_dis_blade_stone = 0
 
     def reward_func(self):
         # reward per step
-        reward = -0.1
+        reward = 0
 
-        # IS LOADED
-        # SINGLE_STONE_IN_BLADE = 1000
-        # for stone in range(self.numStones+1):
-        #     if self.stones_on_ground[stone]:
-        #         if 'StoneIsLoaded' + str(stone) in self.stones:
-        #             if self.stones['StoneIsLoaded' + str(stone)]:
-        #                 reward += SINGLE_STONE_IN_BLADE
-        #                 self.stones_on_ground[stone] = False
+        # reward for getting the blade closer to stone
+        # BLADE_CLOSER = 0.1
+        # self.current_dis_blade_stone = self.sqr_dis_blade_stone()
+        # reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
+
+        STONE_UP = 1.0
+        self.current_stone_height = self.stones['StonePos1'][2]
+        reward += STONE_UP * (self.current_stone_height - self._prev_stone_height)
+
+        # BLADE_OVER_STONE = 1.0
+        # if self.world_state['ArmHeight'] > self.current_stone_height:
+        #     reward -= BLADE_OVER_STONE
+        #
+        # self._prev_dis_blade_stone = self.current_dis_blade_stone
+        # self._prev_stone_height = self.current_stone_height
 
         # Stone height
-        STONE_UP = 10
-        for stone in range(1, self.numStones + 1):
-            self.current_stone_height['stoneHeight'+str(stone)] = self.stones['StonePos'+str(stone)][2]
-
-            if bool(self.last_stone_height): # don't enter first time when last_stone_height is empty
-                if self.current_stone_height['stoneHeight'+str(stone)] > self.last_stone_height['stoneHeight'+str(stone)]:
-                    reward += STONE_UP
-                    rospy.loginfo('---------------- positive reward! ----------------')
-
-            self.last_stone_height['stoneHeight' + str(stone)] = self.current_stone_height['stoneHeight' + str(stone)]
+        # STONE_UP = 10
+        # for stone in range(1, self.numStones + 1):
+        #     self.current_stone_height['stoneHeight'+str(stone)] = self.stones['StonePos'+str(stone)][2]
+        #
+        #     if bool(self.last_stone_height): # don't enter first time when last_stone_height is empty
+        #         if self.current_stone_height['stoneHeight'+str(stone)] > self.last_stone_height['stoneHeight'+str(stone)]:
+        #             reward += STONE_UP
+        #             rospy.loginfo('---------------- positive reward! ----------------')
+        #
+        #     self.last_stone_height['stoneHeight' + str(stone)] = self.current_stone_height['stoneHeight' + str(stone)]
 
         return reward
 
@@ -562,7 +570,16 @@ class PickUpEnv(BaseEnv):
         reset = 'No'
         final_reward = 0
 
-        MAX_STEPS = 6000 # 10 = 1 second
+        FINAL_REWARD = 1000
+        if self.out_of_boarders():
+            done = True
+            reset = 'out of boarders'
+            print('----------------', reset, '----------------')
+            final_reward = - FINAL_REWARD
+            self.episode.killSimulation()
+            self.simOn = False
+
+        MAX_STEPS = 1000
         if self.steps > MAX_STEPS:
             done = True
             reset = 'limit time steps'
@@ -570,19 +587,13 @@ class PickUpEnv(BaseEnv):
             self.episode.killSimulation()
             self.simOn = False
 
-        # IS LOADED
-        # if not all(self.stones_on_ground):
-        #     done = True
-        #     reset = 'sim success'
-        #     print('----------------', reset, '----------------')
-        #     self.episode.killSimulation()
-
         # Stone height
-        HEIGHT_LIMIT = 100
-        if all(height >= HEIGHT_LIMIT for height in self.current_stone_height.values()):
+        HEIGHT_LIMIT = 31
+        if self.current_stone_height >= HEIGHT_LIMIT:
             done = True
             reset = 'sim success'
             print('----------------', reset, '----------------')
+            final_reward = FINAL_REWARD
             self.episode.killSimulation()
             self.simOn = False
 
@@ -590,6 +601,30 @@ class PickUpEnv(BaseEnv):
 
         return done, final_reward, reset
 
+    def blade_pose(self):
+        L = 0.75 # distance from center of vehicle to blade BOBCAT
+        r = R.from_quat(self.world_state['VehicleOrien'])
+
+        blade_pose = self.world_state['VehiclePos'] + L*r.as_rotvec()
+
+        return blade_pose
+
+    def sqr_dis_blade_stone(self):
+        # list of distances from blade to stones
+
+        blade_pose = self.blade_pose()
+        stone_pose = self.stones['StonePos1']
+        sqr_dis = self.squared_dis(blade_pose, stone_pose)
+
+        return sqr_dis
+
+    def squared_dis(self, p1, p2):
+        # calc distance between two points
+        # p1,p2 = [x,y,z]
+
+        squared_dis = pow(p1[0]-p2[0], 2) + pow(p1[1]-p2[1], 2) + pow(p1[2]-p2[2], 2)
+
+        return squared_dis
 
 class PutDownEnv(BaseEnv):
     def __init__(self, numStones=1):

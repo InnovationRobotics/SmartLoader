@@ -19,10 +19,12 @@ import numpy as np
 from typing import Dict
 from tempfile import TemporaryFile
 import csv
+from pynput import keyboard
 
 n_steps = 0
 save_interval = 2000
 best_mean_reward = -np.inf
+recorder_on = True
 
 def save_fn(_locals, _globals):
     global model, n_steps, best_mean_reward, best_model_path, last_model_path
@@ -41,6 +43,16 @@ def save_fn(_locals, _globals):
             last_model_path + '_' + str(time.localtime().tm_mday) + '_' + str(time.localtime().tm_hour) + '_' + str(time.localtime().tm_min))
     n_steps += 1
     pass
+
+def on_press(key):
+    global recorder_on
+    if key.char == 'r':
+        if recorder_on == False:
+            print('start recording')
+            recorder_on = True
+        else:
+            print('stop recording')
+            recorder_on = False
 
 
 def data_saver(obs, act, rew, dones, ep_rew):
@@ -78,7 +90,6 @@ def expert_dataset(name):
     save_path = os.getcwd() + '/dataset'
     os.makedirs(save_path)
     np.savez(save_path, **numpy_dict)
-
 
 def main():
     global model, best_model_path, last_model_path
@@ -205,11 +216,8 @@ def main():
 
     elif job == 'record':
 
-        # mission = 'PushStonesRecorder'  # Change according to algorithm
-        mission = 'PushStonesEnv'
+        mission = 'PickUpEnv'
         env = gym.make(mission + '-v0').unwrapped
-
-        num_episodes = 10
 
         obs = []
         actions = []
@@ -217,35 +225,44 @@ def main():
         dones = []
         episode_rewards = []
 
+        num_episodes = 10
+
+        listener = keyboard.Listener(
+            on_press=on_press)
+        listener.start()
+
         for episode in range(num_episodes):
+
+
 
             ob = env.reset()
             done = False
-            print('Episode number ', episode)
+            print('Episode number ', episode+1)
             episode_reward = 0
 
             while not done:
 
                 act = "recording"
-                new_ob, reward, done, action = env.step(act)
+                new_ob, reward, done, info = env.step(act)
 
-                # ind = [0, 1, 2, 18, 21, 24]
-                ind = [0, 1, 2]
-                # print(ob)
-
-                obs.append(ob)
-                actions.append(action)
-                rewards.append(reward)
-                dones.append(done)
-                episode_reward = episode_reward + reward
+                if recorder_on:
+                    obs.append(ob)
+                    actions.append(info['action'])
+                    rewards.append(reward)
+                    dones.append(done)
+                    episode_reward = episode_reward + reward
 
                 ob = new_ob
 
             episode_rewards.append(episode_reward)
 
+            # rec_saver=input("save episode ? ")
+            # if rec_saver == 'y':
+            #     print('saving data')
+            data_saver(obs, actions, rewards, dones, episode_rewards)
+            # else:
+            #     episode-=1
 
-
-        # data_saver(obs, actions, rewards, dones, episode_rewards)
 
     elif job == 'play':
         # env = gym.make('PickUpEnv-v0')
