@@ -225,7 +225,7 @@ def main():
         dones = []
         episode_rewards = []
 
-        num_episodes = 10
+        num_episodes = 20
 
         listener = keyboard.Listener(
             on_press=on_press)
@@ -244,6 +244,8 @@ def main():
 
                 act = "recording"
                 new_ob, reward, done, info = env.step(act)
+                # print(info['action'])
+                # print(ob[0:3])
 
                 if recorder_on:
                     obs.append(ob)
@@ -259,7 +261,11 @@ def main():
             # rec_saver=input("save episode ? ")
             # if rec_saver == 'y':
             #     print('saving data')
-            data_saver(obs, actions, rewards, dones, episode_rewards)
+            if info['reset reason'] == 'out of boarders' or info['reset reason'] == 'limit time steps':
+                episode -= 1
+            else:
+                print('saving data')
+                data_saver(obs, actions, rewards, dones, episode_rewards)
             # else:
             #     episode-=1
 

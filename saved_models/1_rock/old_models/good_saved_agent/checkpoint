@@ -1,3 +1,0 @@
-model_checkpoint_path: "/home/graphics/git/SmartLoader/saved_models/BC_3/final_model"
-all_model_checkpoint_paths: "/home/graphics/git/SmartLoader/checkpoints/"
-all_model_checkpoint_paths: "/home/graphics/git/SmartLoader/saved_models/BC_3/final_model"

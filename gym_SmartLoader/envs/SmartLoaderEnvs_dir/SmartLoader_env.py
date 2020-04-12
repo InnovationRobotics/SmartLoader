@@ -397,7 +397,6 @@ class BaseEnv(gym.Env):
                 time.sleep(0.1)
             joy_action = self.joycon
             action = self.JoyToAgentAction(joy_action)
-            action = np.array(action)[[0, 1, 3]]  ## reduced action space
         else:
             # send action to simulation
             self.do_action(action)
@@ -433,12 +432,12 @@ class BaseEnv(gym.Env):
     def scene_boarders(self):
         # define scene boarders depending on vehicle and stone initial positions and desired pose
         init_vehicle_pose = self.world_state['VehiclePos']
-        vehicle_box = self.pose_to_box(init_vehicle_pose, box=3)
+        vehicle_box = self.pose_to_box(init_vehicle_pose, box=5)
 
         stones_box = []
         for stone in range(1, self.numStones + 1):
             init_stone_pose = self.stones['StonePos' + str(stone)]
-            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=3))
+            stones_box = self.containing_box(stones_box, self.pose_to_box(init_stone_pose, box=5))
 
         scene_boarders = self.containing_box(vehicle_box, stones_box)
         if self.marker:
