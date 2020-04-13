@@ -47,7 +47,7 @@ def data_saver(obs, act, rew, dones, ep_rew):
     np.save('/home/graphics/git/SmartLoader/saved_ep_hist/ep_ret', ep_rew)
 
 
-def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_sessions, evaluations, expert_sessions, new_model=False, train=False):
+def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, evaluations, expert_sessions, new_model=False, train=True):
 
     global recorder_on
     listener = keyboard.Listener(
@@ -60,15 +60,11 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
     dones = []
     episode_rewards = []
 
+    env = gym.make(env_id).unwrapped
 
-    observations = buffer['st']
-    observations = np.array(observations)
-    ob_size = observations.shape[-1]
+    ob_size = env.observation_space.shape[0]
 
-    labels = buffer['lb']
-    labels = np.array(labels)
-
-    ac_size = labels.shape[-1]
+    ac_size = env.action_space.shape[0]
 
     if new_model:   ## create new sequential keras model
         print("TensorFlow version: ", tf.__version__)
@@ -95,33 +91,13 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
         tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
 
     else:   ### load existing sequential model
-       model = load_model('/home/graphics/git/SmartLoader/saved_models/1_rock_hist_model_2')
+       model = load_model('/home/graphics/git/SmartLoader/saved_models/Push/1_rock_hist_model_2')
 
     if train:   ## train new agent
 
         for t_sess in range(train_sessions):
 
-            model.fit(
-                x=observations,
-                y=labels,
-                batch_size=batch_size,
-                verbose=2,
-                epochs=epochs
-            )
-
-
-            model.save('/home/graphics/git/SmartLoader/1_rock_hist_model_{}'.format(t_sess))
-
-            env = gym.make(env_id).unwrapped
-
-            for _ in range(evaluations):
-                obs = env.reset()
-                done = False
-                while not done:
-                    act = model.predict(obs.reshape([1, ob_size]))
-                    obs, reward, done, info = env.step(act[0])
-
-            for ep_num in range(expert_sessions):  ## new recordings :
+            for ep_num in range(expert_sessions):  ## new recordings to improve wrongful performance :
 
                 ob = env.reset()
                 done = False
@@ -140,22 +116,33 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
                         dones.append(done)
                         episode_reward = episode_reward + reward
 
-                    observations = np.concatenate((observations, ob.reshape([1, ob_size]) ))
-                    labels = np.concatenate((labels, info['action'].reshape([1, ac_size])))
-
                     ob = new_ob
 
                 episode_rewards.append(episode_reward)
 
-                data_saver(obs, actions, rewards, dones, episode_rewards)
+            ### fit a NN to the recordings using supervised learning
+            model.fit(
+                x=np.array(obs),
+                y=np.array(actions),
+                batch_size=batch_size,
+                verbose=2,
+                epochs=epochs
+            )
+
+            model.save('/home/graphics/git/SmartLoader/Push/Dagger_1_rock_5_hist_{}'.format(t_sess))
+
+            for _ in range(evaluations):      ### evaluations -- display performance
+                eval_obs = env.reset()
+                done = False
+                while not done:
+                    eval_act = model.predict(eval_obs.reshape([1, ob_size]))
+                    eval_obs, reward, done, info = env.step(eval_act[0])
 
             env.close()
 
-    print(' ------------ now lets test performance -------------')
-
     env = gym.make(env_id).unwrapped
 
-    for _ in range(evaluations):
+    for _ in range(20):
         obs = env.reset()
         done = False
         while not done:
@@ -167,30 +154,20 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, train_se
 
 
 def main():
-
+    #
     mission = 'PushStonesEnv'  # Change according to algorithm
     env_id = mission + '-v0'
-    env = gym.make(env_id).unwrapped
-
-    obs_size = env.observation_space.shape[0]
-    act_size = env.action_space.shape[0]
-
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/1_rock/80_ep_5_hist/'
-
-    states = np.load(expert_path + 'obs.npy')
-    labels = np.load(expert_path + 'act.npy')
-
-    replay_buffer = {"st": states, "lb": labels}
 
     nn_size = [256, 128, 64]
+    # nn_size = [64, 64, 64]
     batch_size = 64
     learning_rate = 1e-4
-    epochs = 500
-    evaluations = 15
-    train_sess = 1
-    expert_sessions = 0
+    epochs = 1000
+    evaluations = 3
+    train_sess = 10
+    expert_sessions = 5
 
-    imitation_learning(replay_buffer, env_id, nn_size, batch_size, learning_rate, epochs,
+    imitation_learning(env_id, nn_size, batch_size, learning_rate, epochs,
                        train_sess, evaluations, expert_sessions)
 
 

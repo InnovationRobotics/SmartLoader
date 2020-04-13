@@ -143,8 +143,8 @@ class BaseEnv(gym.Env):
         joyactions = np.zeros(6)
 
         joyactions[0] = agent_action[0] # vehicle turn
-        joyactions[3] = agent_action[3] # blade pitch
-        joyactions[4] = agent_action[2] # arm up/down
+        joyactions[3] = agent_action[2] # blade pitch
+        joyactions[4] = agent_action[3] # arm up/down
 
         # translate 4 dim agent action to 5 dim simulation action
         # agent action: [steer, speed, blade_pitch, arm_height]
@@ -177,6 +177,8 @@ class BaseEnv(gym.Env):
 
         agent_action[1] = 0.5*(joy_actions[2] - 1) + 0.5*(1 - joy_actions[5])    ## forward backward
 
+        agent_action = self.env_action_clip(agent_action)
+
         return agent_action
 
 
@@ -190,9 +192,9 @@ class BaseEnv(gym.Env):
         self.simOn = False
 
         self.numStones = numStones
-        self.marker = False # True for Push Stones env, False for Pick Up env
+        self.marker = True # True for Push Stones env, False for Pick Up env
 
-        self.hist_size = 1
+        self.hist_size = 5
 
         # For time step
         self.current_time = time.time()
@@ -227,14 +229,13 @@ class BaseEnv(gym.Env):
         self.joypub = rospy.Publisher("joy", Joy, queue_size=10)
 
         ## Define gym space
-        min_action = np.array(4*[-1.])
-        max_action = np.array(4*[ 1.])
+
         # self.action_size = 4  # all actions
         # self.action_size = 3  # no pitch
         # self.action_size = 2  # without arm actions
         # self.action_size = 1  # drive only forwards
 
-        self.action_space = spaces.Box(low=min_action, high=max_action)
+
         self.observation_space = self.obs_space_init()
 
     def obs_space_init(self):
@@ -284,18 +285,13 @@ class BaseEnv(gym.Env):
     def _current_obs(self):
 
         obs = np.array([])
-        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel',
-        #         'ArmHeight', 'BladeOrien', 'BladeAngularVel', 'BladeLinearAcc']
-        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
-        # keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'ArmHeight']  ### reduced state space
-        keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU',
-                'ArmHeight', 'BladeOrien'] # PICK UP ENV STATE SPACE
+
 
         while True: # wait for all topics to arrive
-            if all(key in self.world_state for key in keys):
+            if all(key in self.world_state for key in self.keys):
                 break
 
-        for key in keys:
+        for key in self.keys:
             item = np.copy(self.world_state[key])
             if key == 'VehiclePos':
                 item -= self.ref_pos
@@ -495,6 +491,15 @@ class PickUpEnv(BaseEnv):
         BaseEnv.__init__(self, numStones)
         self.current_stone_height = 0
         self._prev_stone_height = 0
+
+        self.min_action = np.array(3*[-1.])
+        self.max_action = np.array(3*[ 1.])
+
+        self.action_space = spaces.Box(low=self.min_action, high=self.max_action)
+
+        self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU',
+                'ArmHeight', 'BladeOrien'] # PICK UP ENV STATE SPACE
+
         # self.current_dis_blade_stone = 0
         # self._prev_dis_blade_stone = 0
 
@@ -582,6 +587,8 @@ class PickUpEnv(BaseEnv):
 
         return squared_dis
 
+    def env_action_clip(self, agent_action):
+        return agent_action
 
 class PutDownEnv(BaseEnv):
     def __init__(self, numStones=1):
@@ -687,11 +694,21 @@ class MoveWithStonesEnv(BaseEnv):
 
 
 class PushStonesEnv(BaseEnv):
-    def __init__(self, numStones=3):
+    def __init__(self, numStones=1):
         BaseEnv.__init__(self, numStones)
 
         # self._prev_mean_sqr_blade_dis = 9
         self._prev_mean_sqr_stone_dis = 16
+
+        self.min_action = np.array(3*[-1.])
+        self.max_action = np.array(3*[ 1.])
+
+        self.action_space = spaces.Box(low=self.min_action, high=self.max_action)
+
+        # self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel',
+        #         'ArmHeight', 'BladeOrien', 'BladeAngularVel', 'BladeLinearAcc']
+        self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU', 'ArmHeight'] ### reduced state space
+        # self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'ArmHeight']  ### reduced state space no accel
 
     def reward_func(self):
 
@@ -828,6 +845,9 @@ class PushStonesEnv(BaseEnv):
             success = True
 
         return success
+
+    def env_action_clip(self, agent_action):
+        return agent_action[[0, 1, 3]]
 
     # def blade_got_to_stone(self):
     #     # check if blade got to stone within tolerance

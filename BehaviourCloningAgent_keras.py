@@ -66,7 +66,7 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, evaluati
         tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
 
     else:   ### load existing sequential model
-       model = load_model('/home/graphics/git/SmartLoader/test_model')
+       model = load_model('/home/graphics/git/SmartLoader/saved_models/Pickup/5_hist_maybe')
 
     if train:   ## train new agent
         model.fit(
@@ -76,7 +76,7 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, evaluati
             verbose=2,
             epochs=epochs
         )
-        model.save('/home/graphics/git/SmartLoader/test_model')
+        model.save('/home/graphics/git/SmartLoader/saved_models/Pickup/test_model')
 
     print(' ------------ now lets compare -------------')
 
@@ -91,16 +91,18 @@ def imitation_learning(buffer, env_id, nn_size, batch_size, lr, epochs, evaluati
 
     env.close()
 
+
+###########  labels[550]  #####  model.predict(states[550].reshape([1,ob_size]))
 def main():
 
-    mission = 'PushStonesEnv'  # Change according to algorithm
+    mission = 'PickUpEnv'  # Change according to algorithm
     env_id = mission + '-v0'
     env = gym.make(env_id).unwrapped
 
     obs_size = env.observation_space.shape[0]
     act_size = env.action_space.shape[0]
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/1_rock/np_expert/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/PickUp/20_ep_5_hist/'
 
     states = np.load(expert_path + 'obs.npy')
     labels = np.load(expert_path + 'act.npy')
@@ -108,9 +110,10 @@ def main():
     replay_buffer = {"st": states, "lb": labels}
 
     nn_size = [128, 128, 128]
+    # nn_size = [256, 256]
     batch_size = 64
     learning_rate = 1e-4
-    epochs = 300
+    epochs = 500
     evaluations = 50
 
     imitation_learning(replay_buffer, env_id, nn_size, batch_size, learning_rate, epochs,
