@@ -75,9 +75,11 @@ def expert_dataset(name):
     #     print(key, val.shape)
 
     # dataset = TemporaryFile()
-    save_path = os.getcwd() + '/dataset'
-    os.makedirs(save_path)
+    save_path = os.getcwd() + '/' + name + '_dataset'
+    # os.makedirs(save_path)
     np.savez(save_path, **numpy_dict)
+
+    return numpy_dict
 
 
 def main():
@@ -93,7 +95,10 @@ def main():
 
     jobs = ['train', 'record', 'BC_agent', 'play']
     job = jobs[0]
+
+    name = 'PickUp_40_episodes'
     pretrain = False
+    fillBuffer = False
 
     if job == 'train':
 
@@ -124,10 +129,10 @@ def main():
         policy_kwargs = dict(layers=[64, 64, 64])
 
         # SAC - start learning from scratch
-        model = SAC(sac_MlpPolicy, env, gamma=0.99, learning_rate=1e-4, buffer_size=500000,
-             learning_starts=0, train_freq=8, batch_size=64,
-             tau=0.01, ent_coef='auto', target_update_interval=4,
-             gradient_steps=4, target_entropy='auto', action_noise=None,
+        model = SAC(sac_MlpPolicy, env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
+             learning_starts=3000, train_freq=1, batch_size=64,
+             tau=0.01, ent_coef='auto', target_update_interval=1,
+             gradient_steps=1, target_entropy='auto', action_noise=None,
              random_exploration=0.0, verbose=2, tensorboard_log=log_dir,
              _init_setup_model=True, full_tensorboard_log=True,
              seed=None, n_cpu_tf_sess=None)
@@ -170,9 +175,25 @@ def main():
         # pretrain
         if pretrain:
             # load dataset only once
-            # expert_dataset('3_rocks_40_episodes')
-            dataset = ExpertDataset(expert_path=(os.getcwd() + '/dataset.npz'), traj_limitation=-1)
+            # expert_dataset(name)
+            dataset = ExpertDataset(expert_path=(os.getcwd() + '/' + name + '_dataset.npz'), traj_limitation=-1)
             model.pretrain(dataset, n_epochs=2000)
+
+        # fill replay buffer with Benny's recordings
+        if fillBuffer:
+            traj = expert_dataset(name)
+
+            for i in range(len(traj['obs'])-1):
+                if traj['episode_starts'][i+1]:
+                    done = True
+                else: done = False
+
+                obs = traj['obs'][i]
+                action = traj['actions'][i]
+                reward = traj['rewards'][i]
+                next_obs = traj['obs'][i+1]
+
+                model.replay_buffer.add(obs, action, reward, next_obs, float(done))
 
         # Test the pre-trained model
         # env = model.get_env()
