@@ -137,50 +137,6 @@ class BaseEnv(gym.Env):
         # actionValues = [0,0,1,0,0,1,0,0]  # don't move
         return actionValues
 
-    def AgentToJoyAction(self, agent_action):
-        # translate chosen action (array) to joystick action (dict)
-
-        joyactions = np.zeros(6)
-
-        joyactions[0] = agent_action[0] # vehicle turn
-        joyactions[3] = agent_action[2] # blade pitch
-        joyactions[4] = agent_action[3] # arm up/down
-
-        # translate 4 dim agent action to 5 dim simulation action
-        # agent action: [steer, speed, blade_pitch, arm_height]
-        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
-
-        joyactions[2] = 1. # default value
-        joyactions[5] = 1. # default value
-
-        if agent_action[1] < 0: # drive backwards
-            joyactions[2] = -2*agent_action[1] - 1
-
-        elif agent_action[1] > 0: # drive forwards
-            joyactions[5] = -2*agent_action[1] + 1
-
-        return joyactions
-
-    def JoyToAgentAction(self, joy_actions):
-        # translate chosen action (array) to joystick action (dict)
-
-        agent_action = np.zeros(4)
-
-        agent_action[0] = joy_actions[0]  # vehicle turn
-        agent_action[2] = joy_actions[3]  # blade pitch     ##### reduced state space
-        agent_action[3] = joy_actions[4]  # arm up/down
-
-        # translate 5 dim joystick actions to 4 dim agent action
-        # agent action: [steer, speed, blade_pitch, arm_height]
-        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
-        # all [-1, 1]
-
-        agent_action[1] = 0.5*(joy_actions[2] - 1) + 0.5*(1 - joy_actions[5])    ## forward backward
-
-        agent_action = self.env_action_clip(agent_action)
-
-        return agent_action
-
 
     def __init__(self,numStones=1):
         super(BaseEnv, self).__init__()
@@ -236,51 +192,7 @@ class BaseEnv(gym.Env):
         # self.action_size = 1  # drive only forwards
 
 
-        self.observation_space = self.obs_space_init()
 
-    def obs_space_init(self):
-        # obs = [local_pose:(x,y,z), local_orien_quat:(x,y,z,w)
-        #        velocity: linear:(vx,vy,vz), angular:(wx,wy,wz)
-        #        arm_height: h
-        #        arm_imu: orein_quat:(x,y,z,w), vel:(wx,wy,wz), acc:(ax,ay,az)
-        #        stone<id>: pose:(x,y,z)]
-
-        min_pos = np.array(3*[-500.])
-        max_pos = np.array(3*[ 500.]) # size of ground in Unity - TODO: update to room size
-        min_quat = np.array(4*[-1.])
-        max_quat = np.array(4*[ 1.])
-        min_lin_vel = np.array(3*[-5.])
-        max_lin_vel = np.array(3*[ 5.])
-        min_ang_vel = np.array(3*[-pi/2])
-        max_ang_vel = np.array(3*[ pi/2])
-        min_lin_acc = np.array(3*[-1])
-        max_lin_acc = np.array(3*[ 1])
-        min_arm_height = np.array([0.])
-        max_arm_height = np.array([100.])
-
-        # FIRST STATE SPACE
-        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","ArmHeight","BladeOrien","BladeAngularVel","BladeLinearAcc","Stones"]
-        # low  = np.concatenate((min_pos,min_quat,min_lin_vel,min_ang_vel,min_arm_height,min_quat,min_ang_vel,min_lin_acc), axis=None)
-        # high = np.concatenate((max_pos,max_quat,max_lin_vel,max_ang_vel,max_arm_height,max_quat,max_ang_vel,max_lin_acc), axis=None)
-
-        # NEW SMALLER STATE SPACE:
-        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","Stones"]
-        # low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height))
-        # high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height))
-
-        # PICK UP ENV STATE SPACE
-        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","BladeOrien","Stones"]
-        low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height, min_quat))
-        high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height, max_quat))
-
-        for ind in range(1, self.numStones + 1):
-            low  = np.concatenate((low, min_pos), axis=None)
-            high = np.concatenate((high, max_pos), axis=None)
-
-        obsSpace = spaces.Box(low=np.array([low] * self.hist_size).flatten(),
-                              high=np.array([low] * self.hist_size).flatten())
-
-        return obsSpace
 
     def _current_obs(self):
 
@@ -496,6 +408,7 @@ class PickUpEnv(BaseEnv):
         self.max_action = np.array(3*[ 1.])
 
         self.action_space = spaces.Box(low=self.min_action, high=self.max_action)
+        self.observation_space = self.obs_space_init()
 
         self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel', 'VehicleLinearAccIMU',
                 'ArmHeight', 'BladeOrien'] # PICK UP ENV STATE SPACE
@@ -587,8 +500,82 @@ class PickUpEnv(BaseEnv):
 
         return squared_dis
 
-    def env_action_clip(self, agent_action):
+    def obs_space_init(self):
+        # obs = [local_pose:(x,y,z), local_orien_quat:(x,y,z,w)
+        #        velocity: linear:(vx,vy,vz), angular:(wx,wy,wz)
+        #        arm_height: h
+        #        arm_imu: orein_quat:(x,y,z,w), vel:(wx,wy,wz), acc:(ax,ay,az)
+        #        stone<id>: pose:(x,y,z)]
+
+        min_pos = np.array(3*[-500.])
+        max_pos = np.array(3*[ 500.]) # size of ground in Unity - TODO: update to room size
+        min_quat = np.array(4*[-1.])
+        max_quat = np.array(4*[ 1.])
+        min_lin_vel = np.array(3*[-5.])
+        max_lin_vel = np.array(3*[ 5.])
+        min_ang_vel = np.array(3*[-pi/2])
+        max_ang_vel = np.array(3*[ pi/2])
+        min_lin_acc = np.array(3*[-1])
+        max_lin_acc = np.array(3*[ 1])
+        min_arm_height = np.array([0.])
+        max_arm_height = np.array([100.])
+
+        # PICK UP ENV STATE SPACE
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","BladeOrien","Stones"]  -- i.e. 24 states x hist_size
+        low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height, min_quat))
+        high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height, max_quat))
+
+        for ind in range(1, self.numStones + 1):
+            low  = np.concatenate((low, min_pos), axis=None)
+            high = np.concatenate((high, max_pos), axis=None)
+
+        obsSpace = spaces.Box(low=np.array([low] * self.hist_size).flatten(),
+                              high=np.array([low] * self.hist_size).flatten())
+
+        return obsSpace
+
+    def AgentToJoyAction(self, agent_action):
+        # translate chosen action (array) to joystick action (dict)
+
+        joyactions = np.zeros(6)
+
+        joyactions[0] = agent_action[0] # vehicle turn
+        joyactions[3] = agent_action[2] # blade pitch
+        joyactions[4] = agent_action[3] # arm up/down
+
+        # translate 4 dim agent action to 5 dim simulation action
+        # agent action: [steer, speed, blade_pitch, arm_height]
+        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
+
+        joyactions[2] = 1. # default value
+        joyactions[5] = 1. # default value
+
+        if agent_action[1] < 0: # drive backwards
+            joyactions[2] = -2*agent_action[1] - 1
+
+        elif agent_action[1] > 0: # drive forwards
+            joyactions[5] = -2*agent_action[1] + 1
+
+        return joyactions
+
+    def JoyToAgentAction(self, joy_actions):
+        # translate chosen action (array) to joystick action (dict)
+
+        agent_action = np.zeros(4)
+
+        agent_action[0] = joy_actions[0]  # vehicle turn
+        agent_action[2] = joy_actions[3]  # blade pitch     ##### reduced state space
+        agent_action[3] = joy_actions[4]  # arm up/down
+
+        # translate 5 dim joystick actions to 4 dim agent action
+        # agent action: [steer, speed, blade_pitch, arm_height]
+        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
+        # all [-1, 1]
+
+        agent_action[1] = 0.5*(joy_actions[2] - 1) + 0.5*(1 - joy_actions[5])    ## forward backward
+
         return agent_action
+
 
 class PutDownEnv(BaseEnv):
     def __init__(self, numStones=1):
@@ -704,6 +691,7 @@ class PushStonesEnv(BaseEnv):
         self.max_action = np.array(3*[ 1.])
 
         self.action_space = spaces.Box(low=self.min_action, high=self.max_action)
+        self.observation_space = self.obs_space_init()
 
         # self.keys = ['VehiclePos', 'VehicleOrien', 'VehicleLinearVel', 'VehicleAngularVel',
         #         'ArmHeight', 'BladeOrien', 'BladeAngularVel', 'BladeLinearAcc']
@@ -846,8 +834,86 @@ class PushStonesEnv(BaseEnv):
 
         return success
 
-    def env_action_clip(self, agent_action):
-        return agent_action[[0, 1, 3]]
+    def obs_space_init(self):
+        # obs = [local_pose:(x,y,z), local_orien_quat:(x,y,z,w)
+        #        velocity: linear:(vx,vy,vz), angular:(wx,wy,wz)
+        #        arm_height: h
+        #        arm_imu: orein_quat:(x,y,z,w), vel:(wx,wy,wz), acc:(ax,ay,az)
+        #        stone<id>: pose:(x,y,z)]
+
+        min_pos = np.array(3*[-500.])
+        max_pos = np.array(3*[ 500.]) # size of ground in Unity - TODO: update to room size
+        min_quat = np.array(4*[-1.])
+        max_quat = np.array(4*[ 1.])
+        min_lin_vel = np.array(3*[-5.])
+        max_lin_vel = np.array(3*[ 5.])
+        min_ang_vel = np.array(3*[-pi/2])
+        max_ang_vel = np.array(3*[ pi/2])
+        min_lin_acc = np.array(3*[-1])
+        max_lin_acc = np.array(3*[ 1])
+        min_arm_height = np.array([0.])
+        max_arm_height = np.array([100.])
+
+        # FIRST STATE SPACE
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","ArmHeight","BladeOrien","BladeAngularVel","BladeLinearAcc","Stones"]
+        # low  = np.concatenate((min_pos,min_quat,min_lin_vel,min_ang_vel,min_arm_height,min_quat,min_ang_vel,min_lin_acc), axis=None)
+        # high = np.concatenate((max_pos,max_quat,max_lin_vel,max_ang_vel,max_arm_height,max_quat,max_ang_vel,max_lin_acc), axis=None)
+
+        # NEW SMALLER STATE SPACE:
+        # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","VehicleLinearAccIMU","ArmHeight","Stones"] - -- i.e. 20 states x hist_size
+        low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height))
+        high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height))
+
+        for ind in range(1, self.numStones + 1):
+            low  = np.concatenate((low, min_pos), axis=None)
+            high = np.concatenate((high, max_pos), axis=None)
+
+        obsSpace = spaces.Box(low=np.array([low] * self.hist_size).flatten(),
+                              high=np.array([low] * self.hist_size).flatten())
+
+        return obsSpace
+
+    def AgentToJoyAction(self, agent_action):
+        # translate chosen action (array) to joystick action (dict)
+
+        joyactions = np.zeros(6)
+
+        joyactions[0] = agent_action[0] # vehicle turn
+
+        joyactions[4] = agent_action[2] # arm up/down
+
+        # translate 4 dim agent action to 5 dim simulation action
+        # agent action: [steer, speed, blade_pitch, arm_height]
+        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
+
+        joyactions[2] = 1. # default value
+        joyactions[5] = 1. # default value
+
+        if agent_action[1] < 0: # drive backwards
+            joyactions[2] = -2*agent_action[1] - 1
+
+        elif agent_action[1] > 0: # drive forwards
+            joyactions[5] = -2*agent_action[1] + 1
+
+        return joyactions
+
+    def JoyToAgentAction(self, joy_actions):
+        # translate chosen action (array) to joystick action (dict)
+
+        agent_action = np.zeros(3)
+
+        agent_action[0] = joy_actions[0]  # vehicle turn
+        agent_action[2] = joy_actions[4]  # arm up/down
+
+        # translate 5 dim joystick actions to 4 dim agent action
+        # agent action: [steer, speed, blade_pitch, arm_height]
+        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
+        # all [-1, 1]
+
+        agent_action[1] = 0.5*(joy_actions[2] - 1) + 0.5*(1 - joy_actions[5])    ## forward backward
+
+        return agent_action
+
 
     # def blade_got_to_stone(self):
     #     # check if blade got to stone within tolerance

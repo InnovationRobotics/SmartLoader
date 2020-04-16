@@ -18,9 +18,10 @@ from stable_baselines import logger
 import random
 
 recorder_on = True
+disturbance = None
 
 def on_press(key):
-    global recorder_on
+    global recorder_on, disturbance
     if key.char == 'r':
         if recorder_on == False:
             print('start recording')
@@ -29,12 +30,22 @@ def on_press(key):
             print('stop recording')
             recorder_on = False
 
+    if key.char == 'd':
+        disturbance = 1
+
+    if key.char == 'a':
+        disturbance = -1
+
+    if key.char == 's':
+        disturbance = None
+
+
 
 def data_saver(obs, act, rew, dones, ep_rew):
 
-    np.save('/home/graphics/git/SmartLoader/saved_ep_hist/obs', obs)
-    np.save('/home/graphics/git/SmartLoader/saved_ep_hist/act', act)
-    np.save('/home/graphics/git/SmartLoader/saved_ep_hist/rew', rew)
+    np.save('/home/graphics/git/SmartLoader/saved_ep/obs', obs)
+    np.save('/home/graphics/git/SmartLoader/saved_ep/act', act)
+    np.save('/home/graphics/git/SmartLoader/saved_ep/rew', rew)
 
     starts = [False] * len(dones)
     starts[0] = True
@@ -43,13 +54,13 @@ def data_saver(obs, act, rew, dones, ep_rew):
         if dones[i]:
             starts[i + 1] = True
 
-    np.save('/home/graphics/git/SmartLoader/saved_ep_hist/ep_str', starts)
-    np.save('/home/graphics/git/SmartLoader/saved_ep_hist/ep_ret', ep_rew)
+    np.save('/home/graphics/git/SmartLoader/saved_ep/ep_str', starts)
+    np.save('/home/graphics/git/SmartLoader/saved_ep/ep_ret', ep_rew)
 
 
 def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, evaluations, expert_sessions, new_model=False, train=True):
 
-    global recorder_on
+    global recorder_on, disturbance
     listener = keyboard.Listener(
         on_press=on_press)
     listener.start()
@@ -91,7 +102,7 @@ def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, 
         tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
 
     else:   ### load existing sequential model
-       model = load_model('/home/graphics/git/SmartLoader/saved_models/Push/1_rock_hist_model_2')
+       model = load_model('/home/graphics/git/SmartLoader/saved_models/Push/1_rock_hist_model_1')
 
     if train:   ## train new agent
 
@@ -120,6 +131,8 @@ def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, 
 
                 episode_rewards.append(episode_reward)
 
+                data_saver(obs, actions, rewards, dones, episode_rewards)
+
             ### fit a NN to the recordings using supervised learning
             model.fit(
                 x=np.array(obs),
@@ -129,7 +142,7 @@ def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, 
                 epochs=epochs
             )
 
-            model.save('/home/graphics/git/SmartLoader/Push/Dagger_1_rock_5_hist_{}'.format(t_sess))
+            model.save('/home/graphics/git/SmartLoader/saved_models/Push/Dagger_1_rock_5_hist_{}_extended_demo'.format(t_sess))
 
             for _ in range(evaluations):      ### evaluations -- display performance
                 eval_obs = env.reset()
@@ -147,6 +160,9 @@ def imitation_learning(env_id, nn_size, batch_size, lr, epochs, train_sessions, 
         done = False
         while not done:
             act = model.predict(obs.reshape([1,ob_size]))
+            if disturbance:
+                act[0] = disturbance
+
 
             obs, reward, done, info = env.step(act[0])
 
@@ -162,10 +178,10 @@ def main():
     # nn_size = [64, 64, 64]
     batch_size = 64
     learning_rate = 1e-4
-    epochs = 1000
-    evaluations = 3
-    train_sess = 10
-    expert_sessions = 5
+    epochs = 5000
+    evaluations = 10
+    train_sess = 1
+    expert_sessions = 20
 
     imitation_learning(env_id, nn_size, batch_size, learning_rate, epochs,
                        train_sess, evaluations, expert_sessions)

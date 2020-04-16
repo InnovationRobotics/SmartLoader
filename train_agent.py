@@ -20,6 +20,7 @@ from typing import Dict
 from tempfile import TemporaryFile
 import csv
 from pynput import keyboard
+import sys
 
 n_steps = 0
 save_interval = 2000
@@ -244,8 +245,8 @@ def main():
 
                 act = "recording"
                 new_ob, reward, done, info = env.step(act)
-                # print(info['action'])
-                # print(ob[0:3])
+                print(info['action'])
+                # print(ob)
 
                 if recorder_on:
                     obs.append(ob)
