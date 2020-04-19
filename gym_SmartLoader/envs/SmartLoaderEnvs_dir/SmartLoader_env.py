@@ -163,7 +163,7 @@ class BaseEnv(gym.Env):
         self.marker = False # True for Push Stones env, False for Pick Up env
         self.reduced_state_space = True
 
-        self.hist_size = 1
+        self.hist_size = 5
 
         # For time step
         self.current_time = time.time()
@@ -229,10 +229,14 @@ class BaseEnv(gym.Env):
                     item -= self.ref_pos
                 obs = np.concatenate((obs, item), axis=None)
 
-        for ind in range(1, self.numStones+1):
-            item = np.copy(self.stones['StonePos' + str(ind)])
-            item -= self.ref_pos
-            obs = np.concatenate((obs, item), axis=None)
+        if self.marker: # Push stones mission
+            for ind in range(1, self.numStones+1):
+                item = np.copy(self.stones['StonePos' + str(ind)])
+                item -= self.ref_pos
+                obs = np.concatenate((obs, item), axis=None)
+
+        else: # pick up, only stone's height
+            obs = np.concatenate((obs, self.stones['StonePos1'][2]), axis=None)
 
         return obs
 
@@ -449,10 +453,10 @@ class PickUpEnv(BaseEnv):
         BaseEnv.__init__(self, numStones)
         self.current_stone_height = 0
         self._prev_stone_height = 0
-        self._prev_orien = 0
-        self.current_orien = 0
-        self.current_dis_blade_stone = 0
-        self._prev_dis_blade_stone = 0
+        # self._prev_orien = 0
+        # self.current_orien = 0
+        # self.current_dis_blade_stone = 0
+        # self._prev_dis_blade_stone = 0
 
         self.min_action = np.array(4*[-1.])
         self.max_action = np.array(4*[ 1.])
@@ -471,32 +475,32 @@ class PickUpEnv(BaseEnv):
         reward = 0
 
         # negative reward for blade further from stone
-        BLADE_CLOSER = 0.1
-        self.current_dis_blade_stone = self.sqr_dis_blade_stone()
-        if self.current_dis_blade_stone > self._prev_dis_blade_stone:
-            reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
+        # BLADE_CLOSER = 0.1
+        # self.current_dis_blade_stone = self.sqr_dis_blade_stone()
+        # if self.current_dis_blade_stone > self._prev_dis_blade_stone:
+        #     reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
 
         # negative reward for orientation away from stone
-        if self.reduced_state_space:
-            ORIEN_CLOSER = 0.1
-            self.current_orien = self.current_obs()[2]
-            if self.current_orien > self._prev_orien:
-                reward += ORIEN_CLOSER * (self._prev_orien - self.current_orien)
+        # if self.reduced_state_space:
+        #     ORIEN_CLOSER = 0.1
+        #     self.current_orien = self.current_obs()[2]
+        #     if self.current_orien > self._prev_orien:
+        #         reward += ORIEN_CLOSER * (self._prev_orien - self.current_orien)
 
         # reward for lifting stone
         STONE_UP = 1.0
         self.current_stone_height = self.stones['StonePos1'][2]
         reward += STONE_UP * (self.current_stone_height - self._prev_stone_height)
 
-        # negetive reward for stone to high
+        # negative reward for stone too high
         BLADE_OVER_STONE = 1.0
         MAX_BLADE_HEIGHT = 100
         if self.world_state['ArmHeight'] > MAX_BLADE_HEIGHT:
             reward -= BLADE_OVER_STONE
 
         # update for next step
-        self._prev_dis_blade_stone = self.current_dis_blade_stone
-        self._prev_orien = self.current_orien
+        # self._prev_dis_blade_stone = self.current_dis_blade_stone
+        # self._prev_orien = self.current_orien
         self._prev_stone_height = self.current_stone_height
 
         return reward
@@ -590,13 +594,12 @@ class PickUpEnv(BaseEnv):
             low  = np.concatenate((min_pos, min_quat, min_lin_vel, min_ang_vel, min_lin_acc, min_arm_height, min_quat))
             high = np.concatenate((max_pos, max_quat, max_lin_vel, max_ang_vel, max_lin_acc, max_arm_height, max_quat))
 
-        # add stones
-        for ind in range(1, self.numStones + 1):
-            low  = np.concatenate((low, min_pos), axis=None)
-            high = np.concatenate((high, max_pos), axis=None)
+        # add stone height
+        low  = np.concatenate((low,    0), axis=None)
+        high = np.concatenate((high, 100), axis=None)
 
         obsSpace = spaces.Box(low=np.array([low] * self.hist_size).flatten(),
-                              high=np.array([low] * self.hist_size).flatten())
+                              high=np.array([high] * self.hist_size).flatten())
 
         return obsSpace
 
@@ -939,7 +942,7 @@ class PushStonesEnv(BaseEnv):
             high = np.concatenate((high, max_pos), axis=None)
 
         obsSpace = spaces.Box(low=np.array([low] * self.hist_size).flatten(),
-                              high=np.array([low] * self.hist_size).flatten())
+                              high=np.array([high] * self.hist_size).flatten())
 
         return obsSpace
 
