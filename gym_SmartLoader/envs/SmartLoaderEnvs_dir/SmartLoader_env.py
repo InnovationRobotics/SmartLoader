@@ -160,10 +160,10 @@ class BaseEnv(gym.Env):
         self.simOn = False
 
         self.numStones = numStones
-        self.marker = False # True for Push Stones env, False for Pick Up env
+        self.marker = True # True for Push Stones env, False for Pick Up env
         self.reduced_state_space = True
 
-        self.hist_size = 5
+        self.hist_size = 3
 
         # For time step
         self.current_time = time.time()
@@ -215,11 +215,10 @@ class BaseEnv(gym.Env):
             obs = np.array([self.world_state['VehiclePos'][0] - self.ref_pos[0],                          # vehicle x pos normalized [m]
                             self.world_state['VehiclePos'][1] - self.ref_pos[1],                          # vehicle y pos normalized [m]
                             self.normalize_orientation(quatToEuler(self.world_state['VehicleOrien'])[2]), # yaw normalized [deg]
-                            np.linalg.norm(self.world_state['VehicleLinearVel']),                         # linear velocity size [m/s]
-                            self.world_state['VehicleAngularVel'][2]*180/pi,                              # yaw rate [deg/s]
-                            np.linalg.norm(self.world_state['VehicleLinearAccIMU']),                      # linear acceleration size [m/s^2]
-                            self.world_state['ArmHeight'][0],                                             # arm height [m]
-                            quatToEuler(self.world_state['BladeOrien'])[0]])                              # blade pitch [deg]
+                            # np.linalg.norm(self.world_state['VehicleLinearVel']),                         # linear velocity size [m/s]
+                            # self.world_state['VehicleAngularVel'][2]*180/pi,                              # yaw rate [deg/s]
+                            # np.linalg.norm(self.world_state['VehicleLinearAccIMU']),                      # linear acceleration size [m/s^2]
+                            self.world_state['ArmHeight'][0]])                                             # arm height [m]
 
         else:
             obs = np.array([])
@@ -229,14 +228,16 @@ class BaseEnv(gym.Env):
                     item -= self.ref_pos
                 obs = np.concatenate((obs, item), axis=None)
 
+        # add stones
         if self.marker: # Push stones mission
             for ind in range(1, self.numStones+1):
                 item = np.copy(self.stones['StonePos' + str(ind)])
                 item -= self.ref_pos
                 obs = np.concatenate((obs, item), axis=None)
 
-        else: # pick up, only stone's height
-            obs = np.concatenate((obs, self.stones['StonePos1'][2]), axis=None)
+        else: # pick up, blade pitch + only stone's height
+            obs = np.concatenate((obs, quatToEuler(self.world_state['BladeOrien'])[0]), axis=None)  # blade pitch [deg]
+            obs = np.concatenate((obs, self.stones['StonePos1'][2]), axis=None)                     # stone's height
 
         return obs
 
@@ -368,7 +369,7 @@ class BaseEnv(gym.Env):
         if done:
             self.world_state = {}
             self.stones = {}
-            print('total reward = ', self.total_reward)
+            print('initial distance = ', self.init_dis, ' total reward = ', self.total_reward)
 
         info = {"state": self.obs, "action": action, "reward": self.total_reward, "step": self.steps, "reset reason": reset}
 
@@ -392,7 +393,7 @@ class BaseEnv(gym.Env):
 
         scene_boarders = self.containing_box(vehicle_box, stones_box)
         if self.marker: # push stones mission
-            scene_boarders = self.containing_box(scene_boarders, self.pose_to_box(self.ref_pos[0:2], box=5))
+            scene_boarders = self.containing_box(scene_boarders, self.pose_to_box(self.ref_pos[0:2], box=3))
 
         return scene_boarders
 
@@ -453,10 +454,10 @@ class PickUpEnv(BaseEnv):
         BaseEnv.__init__(self, numStones)
         self.current_stone_height = 0
         self._prev_stone_height = 0
-        # self._prev_orien = 0
-        # self.current_orien = 0
-        # self.current_dis_blade_stone = 0
-        # self._prev_dis_blade_stone = 0
+        self._prev_orien = 0
+        self.current_orien = 0
+        self.current_dis_blade_stone = 0
+        self._prev_dis_blade_stone = 0
 
         self.min_action = np.array(4*[-1.])
         self.max_action = np.array(4*[ 1.])
@@ -475,32 +476,36 @@ class PickUpEnv(BaseEnv):
         reward = 0
 
         # negative reward for blade further from stone
-        # BLADE_CLOSER = 0.1
-        # self.current_dis_blade_stone = self.sqr_dis_blade_stone()
+        BLADE_CLOSER = 0.1
+        self.current_dis_blade_stone = self.sqr_dis_blade_stone()
         # if self.current_dis_blade_stone > self._prev_dis_blade_stone:
-        #     reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
+        reward += BLADE_CLOSER * (self._prev_dis_blade_stone - self.current_dis_blade_stone)
 
         # negative reward for orientation away from stone
-        # if self.reduced_state_space:
-        #     ORIEN_CLOSER = 0.1
-        #     self.current_orien = self.current_obs()[2]
-        #     if self.current_orien > self._prev_orien:
-        #         reward += ORIEN_CLOSER * (self._prev_orien - self.current_orien)
+        if self.reduced_state_space:
+            ORIEN_CLOSER = 0.1
+            self.current_orien = abs(self.current_obs()[2])
+            # if self.current_orien > self._prev_orien:
+            reward += ORIEN_CLOSER * (self._prev_orien - self.current_orien)
 
-        # reward for lifting stone
+        # positive reward for lifting stone
         STONE_UP = 1.0
         self.current_stone_height = self.stones['StonePos1'][2]
         reward += STONE_UP * (self.current_stone_height - self._prev_stone_height)
 
-        # negative reward for stone too high
+        # negative reward for blade too high
         BLADE_OVER_STONE = 1.0
         MAX_BLADE_HEIGHT = 100
         if self.world_state['ArmHeight'] > MAX_BLADE_HEIGHT:
             reward -= BLADE_OVER_STONE
 
+        # negative reward for blade over stone
+        if self.stones['StonePos1'][2] < 30 and self.world_state['ArmHeight'] > 50: # for stone scale 0.25
+            reward -= BLADE_OVER_STONE
+
         # update for next step
-        # self._prev_dis_blade_stone = self.current_dis_blade_stone
-        # self._prev_orien = self.current_orien
+        self._prev_dis_blade_stone = self.current_dis_blade_stone
+        self._prev_orien = self.current_orien
         self._prev_stone_height = self.current_stone_height
 
         return reward
@@ -583,9 +588,14 @@ class PickUpEnv(BaseEnv):
 
         if self.reduced_state_space:
             # vehicle [x,y] pose, orientation yaw [deg] normalized by ref, linear velocity size, yaw rate,
-            # linear acceleration size, arm height, blade pitch, stone pose [x,y,z]
-            low  = np.array([-500., -500., -180., -5., -180., -3.,   0., -180.])
-            high = np.array([ 500.,  500.,  180.,  5.,  180.,  3., 300.,  180.])
+            # linear acceleration size, arm height, blade pitch, stone height z
+            # low  = np.array([-500., -500., -180., -5., -180., -3.,   0., -180.])
+            # high = np.array([ 500.,  500.,  180.,  5.,  180.,  3., 300.,  180.])
+
+            # delete velocities
+            # vehicle [x,y] pose, orientation yaw [deg] normalized by ref, arm height, blade pitch, stone height z
+            low  = np.array([-10., -10., -180.,   0., -180.])
+            high = np.array([ 10.,  10.,  180., 300.,  180.])
 
         else:
             # PICK UP ENV STATE SPACE
@@ -755,6 +765,7 @@ class PushStonesEnv(BaseEnv):
 
         # self._prev_mean_sqr_blade_dis = 9
         self._prev_mean_sqr_stone_dis = 16
+        self._prev_orien = 0
 
         self.min_action = np.array(3*[-1.])
         self.max_action = np.array(3*[ 1.])
@@ -772,7 +783,8 @@ class PushStonesEnv(BaseEnv):
     def reward_func(self):
 
         # reward per step
-        reward = 0
+        reward = -0.01
+        # reward = 0
 
         # reward for getting the blade closer to stone
         # BLADE_CLOSER = 0.1
@@ -786,9 +798,17 @@ class PushStonesEnv(BaseEnv):
         # reward += STONE_CLOSER / mean_sqr_stone_dis
         reward += STONE_CLOSER * (self._prev_mean_sqr_stone_dis - mean_sqr_stone_dis)
 
+        # negative reward for orientation away from reference
+        # if self.reduced_state_space:
+        #     ORIEN_CLOSER = 0.05
+        #     self.current_orien = abs(self.current_obs()[2])
+        #     if self.current_orien > self._prev_orien:
+        #         reward += ORIEN_CLOSER * (self._prev_orien - self.current_orien)
+
         # update prevs
         # self._prev_mean_sqr_blade_dis = mean_sqr_blade_dis
         self._prev_mean_sqr_stone_dis = mean_sqr_stone_dis
+        # self._prev_orien = self.current_orien
 
         # STONE_CLOSER = 0.1
         # diff_from_init_dis = self.init_dis_stone_desired_pose - np.mean(self.sqr_dis_stone_desired_pose())
@@ -860,7 +880,7 @@ class PushStonesEnv(BaseEnv):
             self.episode.killSimulation()
             self.simOn = False
 
-        MAX_STEPS = 200*self.init_dis
+        MAX_STEPS = 250*self.init_dis
         if self.steps > MAX_STEPS:
             done = True
             reset = 'limit time steps'
@@ -923,8 +943,14 @@ class PushStonesEnv(BaseEnv):
         if self.reduced_state_space:
             # vehicle [x,y] pose, orientation yaw [deg] normalized by ref, linear velocity size, yaw rate,
             # linear acceleration size, arm height, blade pitch, stone pose [x,y,z]
-            low  = np.array([-500., -500., -180., -5., -180., -3.,   0., -180.])
-            high = np.array([ 500.,  500.,  180.,  5.,  180.,  3., 300.,  180.])
+            # low  = np.array([-500., -500., -180., -5., -180., -3.,   0., -180.])
+            # high = np.array([ 500.,  500.,  180.,  5.,  180.,  3., 300.,  180.])
+
+            # delete velocities
+            # vehicle [x,y] pose, orientation yaw [deg] normalized by ref, arm height, stone pose [x,y,z]
+            low  = np.array([-500., -500., -180.,   0.])
+            high = np.array([ 500.,  500.,  180., 300.])
+
         else:
             # FIRST STATE SPACE
             # ["VehiclePos","VehicleOrien","VehicleLinearVel","VehicleAngularVel","ArmHeight","BladeOrien","BladeAngularVel","BladeLinearAcc","Stones"]
