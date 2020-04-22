@@ -25,3 +25,7 @@ register(
     id='PushStonesEnv-v0',
     entry_point='gym_SmartLoader.envs.SmartLoaderEnvs_dir:PushStonesEnv'
 )
+register(
+    id='PushStonesHeatMapEnv-v0',
+    entry_point='gym_SmartLoader.envs.SmartLoaderEnvs_dir:PushStonesHeatMapEnv'
+)
