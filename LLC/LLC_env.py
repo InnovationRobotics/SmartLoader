@@ -115,7 +115,7 @@ class LLCEnv:
         self._output_folder = os.getcwd()
 
         self.world_state = {}
-        self.simOn = False
+        # self.simOn = False
         self.keys = ['ArmHeight', 'BladeOrien']
         self.length = L
 
@@ -140,7 +140,7 @@ class LLCEnv:
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
         # initiate simulation
-        self.init_env()
+        # self.init_env()
         time.sleep(3)
 
         # Define PIDs
@@ -164,13 +164,13 @@ class LLCEnv:
         self.fig.show()
 
 
-    def init_env(self):
-        if self.simOn:
-            self.episode.killSimulation()
-
-        self.episode = EpisodeManager()
-        self.episode.generateAndRunWholeEpisode(typeOfRand="verybasic")  # for NUM_STONES = 1
-        self.simOn = True
+    # def init_env(self):
+    #     if self.simOn:
+    #         self.episode.killSimulation()
+    #
+    #     self.episode = EpisodeManager()
+    #     self.episode.generateAndRunWholeEpisode(typeOfRand="verybasic")  # for NUM_STONES = 1
+    #     self.simOn = True
 
 
     def step(self, i):
