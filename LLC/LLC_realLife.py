@@ -8,6 +8,7 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, TwistStamped
+from grid_map_msgs.msg import GridMap
 
 import os
 import time
@@ -43,7 +44,6 @@ class LLCEnv:
 
     # CALLBACKS
     def VehiclePositionCB(self,stamped_pose):
-        # new_stamped_pose = urw.positionROS2RW(stamped_pose)
         x = stamped_pose.pose.position.x
         y = stamped_pose.pose.position.y
         z = stamped_pose.pose.position.z
@@ -55,20 +55,25 @@ class LLCEnv:
         qw = stamped_pose.pose.orientation.w
         self.world_state['VehicleOrien'] = np.array([qx,qy,qz,qw])
 
-    def VehicleVelocityCB(self, stamped_twist):
-        vx = stamped_twist.twist.linear.x
-        vy = stamped_twist.twist.linear.y
-        vz = stamped_twist.twist.linear.z
-        self.world_state['VehicleLinearVel'] = np.array([vx,vy,vz])
+    def ShovelPositionCB(self,stamped_pose):
+        x = stamped_pose.pose.position.x
+        y = stamped_pose.pose.position.y
+        z = stamped_pose.pose.position.z
+        self.world_state['ShovelPos'] = np.array([x,y,z])
 
-        wx = stamped_twist.twist.angular.x
-        wy = stamped_twist.twist.angular.y
-        wz = stamped_twist.twist.angular.z
-        self.world_state['VehicleAngularVel'] = np.array([wx,wy,wz])
+        qx = stamped_pose.pose.orientation.x
+        qy = stamped_pose.pose.orientation.y
+        qz = stamped_pose.pose.orientation.z
+        qw = stamped_pose.pose.orientation.w
+        self.world_state['ShovelOrien'] = np.array([qx,qy,qz,qw])
 
     def ArmHeightCB(self, data):
         height = data.data
         self.world_state['ArmHeight'] = np.array([height])
+
+    def ArmShortHeightCB(self, data):
+        height = data.data
+        self.world_state['BladePitch'] = np.array([height])
 
     def BladeImuCB(self, imu):
         qx = imu.orientation.x
@@ -87,6 +92,25 @@ class LLCEnv:
         az = imu.linear_acceleration.z
         self.world_state['BladeLinearAcc'] = np.array([ax,ay,az])
 
+    def VehicleImuCB(self, imu):
+        qx = imu.orientation.x
+        qy = imu.orientation.y
+        qz = imu.orientation.z
+        qw = imu.orientation.w
+        self.world_state['VehicleOrienIMU'] = np.array([qx,qy,qz,qw])
+
+        wx = imu.angular_velocity.x
+        wy = imu.angular_velocity.y
+        wz = imu.angular_velocity.z
+        self.world_state['VehicleAngularVelIMU'] = np.array([wx,wy,wz])
+
+        ax = imu.linear_acceleration.x
+        ay = imu.linear_acceleration.y
+        az = imu.linear_acceleration.z
+        self.world_state['VehicleLinearAccIMU'] = np.array([ax,ay,az])
+
+    # def GridMapCB(self):
+
     def do_action(self, pd_action):
         joymessage = Joy()
 
@@ -94,9 +118,8 @@ class LLCEnv:
 
         joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
 
-        if not self.sim:
-            joymessage.buttons = 11*[0]
-            joymessage.buttons[7] = 1
+        joymessage.buttons = 11*[0]
+        joymessage.buttons[7] = 1
 
         self.joypub.publish(joymessage)
         rospy.logdebug(joymessage)
@@ -105,10 +128,6 @@ class LLCEnv:
         # translate chosen action (array) to joystick action (dict)
         joyactions = np.zeros(6)
 
-        if self.sim:
-            joyactions[2] = 1. # default value
-            joyactions[5] = 1. # default value
-
         # ONLY LIFT AND PITCH
         joyactions[3] = pd_action[1] # blade pitch
         joyactions[4] = pd_action[0] # blade lift
@@ -116,14 +135,13 @@ class LLCEnv:
         return joyactions
 
 
-    def __init__(self, L):
-        self.sim = False
+    def __init__(self):
         self._output_folder = os.getcwd()
 
         self.world_state = {}
-        self.simOn = False
-        self.keys = ['ArmHeight', 'BladeOrien']
-        self.length = L
+        self.keys = ['ArmHeight', 'BladePitch']
+        self.lift = []
+        self.pitch = []
 
         # For time step
         self.current_time = time.time()
@@ -137,46 +155,31 @@ class LLCEnv:
         self.rate = rospy.Rate(10)  # 10hz
 
         # Define Subscribers
-        # self.vehiclePositionSub = rospy.Subscriber('mavros/local_position/pose', PoseStamped, self.VehiclePositionCB)
-        # self.vehicleVelocitySub = rospy.Subscriber('mavros/local_position/velocity', TwistStamped, self.VehicleVelocityCB)
+        self.vehiclePositionSub = rospy.Subscriber('Sl_pose', PoseStamped, self.VehiclePositionCB)
+        self.shovelPositionSub = rospy.Subscriber('shovel_pose', PoseStamped, self.ShovelPositionCB)
         self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
+        self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
+        # self.mapSub = rospy.Subscriber('Sl_map', GridMap, self.GridMapCB)
+        # self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
 
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
-        # initiate simulation
-        self.init_env()
+        # wait for set up
         time.sleep(3)
 
         # Define PIDs
-        # set point = height of 100, pitch of 0
-        self._kp_kd = 'kp=0.1_kd=0.01'
-        self.lift_pid = pid.PID(P=1., I=0, D=0.01, saturation=True)
-        self.lift_pid.SetPoint = 250.
+        # armHeight = lift = [down:145 - up:265]
+        self._kp_kd = 'realLife_lift_P=0.1_D=0.001_pitch_P=-0.1_D=0.01'
+        self.lift_pid = pid.PID(P=0.1, I=0, D=0.001, saturation=True)
+        self.lift_pid.SetPoint = 200.
         self.lift_pid.setSampleTime(0.01)
 
-        self.pitch_pid = pid.PID(P=0.1, I=0, D=0.01, saturation=True) # P=10.0, I=0, D=0.001
-        self.pitch_pid.SetPoint = 0.
+        # armShortHeight = pitch = [up:70 - down:265]
+        self.pitch_pid = pid.PID(P=-0.1, I=0, D=0.01, saturation=True)
+        self.pitch_pid.SetPoint = 150.
         self.pitch_pid.setSampleTime(0.01)
-
-        # init plot
-        x = np.linspace(0, self.length, self.length + 1)
-        self.fig, (self.ax_lift, self.ax_pitch) = plt.subplots(2)
-        self.ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
-        self.ax_lift.set_title('lift')
-        self.ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
-        self.ax_pitch.set_title('pitch')
-        self.fig.show()
-
-
-    def init_env(self):
-        if self.simOn:
-            self.episode.killSimulation()
-
-        self.episode = EpisodeManager()
-        self.episode.generateAndRunWholeEpisode(typeOfRand="verybasic")  # for NUM_STONES = 1
-        self.simOn = True
 
 
     def step(self, i):
@@ -200,12 +203,11 @@ class LLCEnv:
 
         # current state
         current_lift = self.world_state['ArmHeight'].item(0)
-        current_pitch = quatToEuler(self.world_state['BladeOrien'])[1]
-        print(quatToEuler(self.world_state['BladeOrien']))
-        print('lift = ', current_lift, 'pitch = ', current_pitch)
+        current_pitch = self.world_state['BladePitch'].item(0)
+        print('{}. lift = '.format(str(i)), current_lift, 'pitch = ', current_pitch)
 
         # check if done
-        if current_lift == self.lift_pid.SetPoint: # and current_pitch == self.pitch_pid.SetPoint:
+        if current_lift == self.lift_pid.SetPoint and current_pitch == self.pitch_pid.SetPoint:
             print('Success!')
             stop = True
 
@@ -214,34 +216,49 @@ class LLCEnv:
         pitch_output = self.pitch_pid.update(current_pitch)
         # pitch_output = 0
 
-        # do action in simulation
+        # do action
         pd_action = np.array([lift_output, pitch_output])
         self.do_action(pd_action)
+        print('lift action = ', lift_output, 'pitch action = ', pitch_output)
 
-        # plot
-        self.ax_lift.scatter(i, current_lift, color='red')
-        self.ax_pitch.scatter(i, current_pitch, color='red')
-        self.fig.show()
+        # save data
+        self.lift.append(current_lift)
+        self.pitch.append(current_pitch)
 
         return stop
 
     def save_plot(self):
+        # init plot
+        length = len(self.lift)
+        x = np.linspace(0, length, length)
+        fig, (ax_lift, ax_pitch) = plt.subplots(2)
+        ax_lift.set_title('lift')
+        ax_pitch.set_title('pitch')
+
+        # plot set points
+        ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
+        ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
+
+        # plot data
+        ax_lift.scatter(x, self.lift, color='red')
+        ax_pitch.scatter(x, self.pitch, color='red')
+
         # create plot folder if it does not exist
         try:
             plot_folder = "{}/plots".format(self._output_folder)
         except FileNotFoundError:
             os.makedirs(plot_folder)
-        self.fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
+        fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
         print('figure saved!')
 
 
 if __name__ == '__main__':
-    L = 100
-    LLC = LLCEnv(L)
+    L = 500
+    LLC = LLCEnv()
     for i in range(L):
         stop = LLC.step(i)
         if i == L-1:
             LLC.save_plot()
-        if stop:
-            break
-
+        # if stop:
+        #     LLC.save_plot()
+        #     break
