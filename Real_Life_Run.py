@@ -8,8 +8,10 @@ from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, TwistStamped
 from sensor_msgs.msg import PointCloud2
+import ros_numpy
 # from grid_map_msgs.msg import GridMap
 from HeatMapGen import HeatMap
+from matplotlib import pyplot as plt
 
 import os
 import time
@@ -107,8 +109,10 @@ class SmartLoader:
         self.world_state['VehicleLinearAccIMU'] = np.array([ax,ay,az])
 
     def PointCloudCB(self, data):
-
-        self.heat_map = HeatMap(data)
+        ### based on velodyne FOV [330:25]
+        np_pc = ros_numpy.numpify(data)
+        xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
+        self.heat_map = HeatMap(xyz_array)
 
     def do_action(self, agent_action):
 
@@ -157,6 +161,7 @@ class SmartLoader:
         self.arm_lift = []
         self.arm_pitch = []
         self.heat_map = []
+        self.keys = ['ArmHeight', 'BladePitch']
 
         # For time step
         self.current_time = time.time()
@@ -175,7 +180,7 @@ class SmartLoader:
         self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
         self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
-        self.PointCloudSub = rospy.Subscriber('velodyne_points', PointCloud2, self.PointCloudCB)
+        self.PointCloudSub = rospy.Subscriber('/velodyne_points', PointCloud2, self.PointCloudCB)
         # self.mapSub = rospy.Subscriber('Sl_map', GridMap, self.GridMapCB)
         # self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
 
@@ -205,12 +210,27 @@ class SmartLoader:
 
         # current state
         h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
-        arm_pitch = self.world_state['BladePitch'].item(0)
+        # arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_pitch = self.world_state['BladePitch'].item(0)
 
-        obs = [h_map, arm_lift, arm_pitch]
+        obs = [h_map]#, arm_lift, arm_pitch]
 
         # do action
-        self.do_action(action)
+        if action :
+            self.do_action(action)
 
         return obs
+
+if __name__ == '__main__':
+
+    env = SmartLoader()
+    for i in range(100000):
+        action = []
+        ob = env.step(action)
+        h_map = ob[0]
+
+        # plt.matshow(h_map)
+        # plt.show(block=False)
+        # plt.pause(1)
+        # plt.close()
+        # print(ob[0])
