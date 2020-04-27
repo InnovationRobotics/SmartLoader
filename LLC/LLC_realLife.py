@@ -8,7 +8,7 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from grid_map_msgs.msg import GridMap
+# from grid_map_msgs.msg import GridMap
 
 import os
 import time
@@ -16,8 +16,6 @@ import numpy as np
 import math
 from LLC import pid
 from matplotlib import pyplot as plt
-
-from src.EpisodeManager import *
 
 def quatToEuler(quat):
     x = quat[0]
