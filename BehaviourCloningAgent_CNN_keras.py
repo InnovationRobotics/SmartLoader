@@ -1,55 +1,57 @@
 import tensorflow as tf
 from tensorflow import keras
-from keras.layers import Dense, Input, Conv1D, Conv2D, Conv3D, MaxPooling2D, Flatten, BatchNormalization, concatenate
-from keras.optimizers import Adam, sgd
+from keras.layers import Dense, Input, Conv1D, Conv2D, Conv3D, MaxPooling2D, Flatten, BatchNormalization, concatenate, Dropout, Activation
+from keras.optimizers import Adam, SGD, Nadam, Adamax, Adagrad
 from keras.models import Model, load_model
 from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.utils import plot_model
-
+from matplotlib import pyplot as plt
 import numpy as np
-import sys
-import csv
-import gym
-import os
-import gym_SmartLoader.envs
-from stable_baselines import SAC
-from stable_baselines import logger
-import random
-import pickle
-
-def imitation_learning(states, labels, env_id, nn_size, conv_layers, batch_size, lr, epochs, evaluations, new_model = True, train = True ):
-
-    ob_size = states.shape[1:3]
-
-    ac_size = labels.shape[-1]
-
-    env = gym.make(env_id).unwrapped
-
-    assert ob_size == env.observation_space.shape, "observation space mismatch. expert data: {}, gym enviornment: {}".format(ob_size, env.observation_space.shape)
-    assert ac_size == env.action_space.shape[0], "action space mismatch. expert data: {}; gym enviornment: {}".format(ac_size, env.action_space.shape)
-
-    heat_map = states[:,:,0:-1].reshape(np.hstack([states[:,:,0:-1].shape, 1]))
-    hmap_size = heat_map.shape
+import talos
 
 
-    sensors = states[:,0:12,-1]
-    sns_shape = sensors.shape
+# translate chosen action (array) to joystick action (dict)
+
+
+def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, epochs, new_model = True, train = True ):
+
+    # eval_index = np.random.randint(len(actions), size=int(len(actions)*evals))
+    # eval_actions = actions[eval_index]
+    # eval_heat_maps = heat_maps[eval_index].reshape(len(eval_index),1,100,6)
+    #
+    # actions = np.delete(actions, eval_index, axis=0)
+    # heat_maps = np.delete(heat_maps, eval_index, axis=0)
+
 
     if new_model:   ## create new sequential keras model
 
-        hmap_input = Input(shape=heat_map.shape[1:4], name='Heat_map_input')
-        sens_input = Input(shape=(sensors.shape[-1],), name='IMU_input')
+        heat_maps = heat_maps.reshape(len(heat_maps), hist_size, 100, 6)
 
-        conv_l=hmap_input
+        # hmap_size = heat_maps[0].reshape(1,100,6).shape
+        hmap_size = heat_maps.shape[1:]
 
-        l_strides = (1, 1)
-        for layer in range(conv_layers):
-            # if ((layer + 1) % ((conv_layers - 2) / 2)) == 0:
-            #     l_strides = (2, 1)
-            # else:
-            #     l_strides = (1, 1)
-            conv_l = Conv2D(filters=32, kernel_size=(3, 3), strides=l_strides, padding='same', activation='relu')(conv_l)
-            conv_l = BatchNormalization()(conv_l)
+        ac_size = actions[0].shape[0]
+
+        hmap_input = Input(shape=hmap_size, name='Heat_map_input')
+
+        conv_l = hmap_input
+
+        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
+        # conv_l = Activation('elu')(conv_l)
+        # conv_l = BatchNormalization()(conv_l)
+        conv_l = Dropout(rate=0.0)(conv_l)
+        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
+        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
+        conv_l = Conv2D(filters=64, kernel_size=(4, 4), strides=(1, 1), padding='same')(conv_l)
+        conv_l = Dropout(rate=0.0)(conv_l)
+        # conv_l = Activation('elu')(conv_l)
+        # conv_l = BatchNormalization()(conv_l)
+        # conv_l = Dropout(rate=0.1)(conv_l)
+        # conv_l = Conv2D(filters=16, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu')(conv_l)
+        # conv_l = BatchNormalization()(conv_l)
+        # conv_l = Conv2D(filters=32, kernel_size=(3, 3), strides=(1, 1), padding='same', activation='relu')(conv_l)
+        # conv_l = BatchNormalization()(conv_l)
+
         conv_l = Flatten()(conv_l)
 
         # fc_l = concatenate([conv_l, sens_input])
@@ -57,14 +59,16 @@ def imitation_learning(states, labels, env_id, nn_size, conv_layers, batch_size,
         for i in range(len(nn_size)):
             fc_l = Dense(nn_size[i], activation='relu')(fc_l)
 
-        output = Dense(ac_size, activation='tanh', use_bias=False)(fc_l)
+        output = Dense(ac_size, activation='relu', use_bias=True)(fc_l)
 
-        model = Model(inputs=[hmap_input, sens_input], outputs=output)
+        model = Model(inputs=hmap_input, outputs=output)
 
         opt = Adam(lr=lr)
+        # opt = Nadam(lr=lr)
+        # opt = SGD(lr=lr)
 
         model.compile(
-            loss='mean_squared_error',
+            loss='mean_absolute_error',
             optimizer=opt)
 
         print(model.summary())
@@ -77,28 +81,36 @@ def imitation_learning(states, labels, env_id, nn_size, conv_layers, batch_size,
        model = load_model('/home/graphics/git/SmartLoader/saved_models/Heatmap/test_model')
 
     if train:   ## train new agent
-        model.fit(
-            [heat_map,sensors],
-            labels,
+        hist = model.fit(
+            x=heat_maps,
+            y=actions,
             batch_size=batch_size,
-            verbose=1,
-            epochs=epochs
+            verbose=2,
+            epochs=epochs,
+            validation_split=0.2
         )
         model.save('/home/graphics/git/SmartLoader/saved_models/Heatmap/test_model')
 
-    print(' ------------ now lets compare -------------')
+    x = range(0, epochs)
+    plt.plot(x, hist.history['loss'], label="Training Loss")
+    plt.plot(x, hist.history['val_loss'], label="Eval Loss")
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss Value')
+    plt.legend(loc="upper left")
+    plt.grid(True)
+    plt.show()
 
 
-    ob_size = env.observation_space.shape[-1]
+    print(' ------------ now lets evaluate -------------')
 
-    for _ in range(evaluations):
-        obs = env.reset()
-        done = False
-        while not done:
-            act = model.predict(obs.reshape([1,ob_size]))
-            obs, reward, done, info = env.step(act[0])
+    # loss = []
+    # for k in range(len(eval_actions)):
+    #     action = model.predict(eval_heat_maps[k].reshape(1,1,100,6))
+    #     loss.append(np.abs(action - eval_actions[k]))
+    # avg_loss = np.mean(loss)
+    # print('avarage loss for {} evaluations: {}'.format(len(eval_actions),avg_loss))
+    #
 
-    env.close()
 
 
 ###########  labels[550]  #####  model.predict(states[550].reshape([1,ob_size]))
@@ -107,20 +119,32 @@ def main():
     mission = 'PushStonesHeatMapEnv'  # Change according to algorithm
     env_id = mission + '-v0'
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/30_ep_4_st_3_hist/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/lift_23_ep/'
 
-    states = np.load(expert_path + 'obs.npz')['arr_0']
-    labels = np.load(expert_path + 'act.npy')
+    heat_maps = np.load(expert_path+'heatmap.npy')
+    states = np.load(expert_path+'states.npy')
+    actions = np.load(expert_path + 'actions.npy')
 
-    nn_size = [256, 256, 128, 128]
-    conv_layers = 3
-    batch_size = 32
-    learning_rate = 1e-3
+    heat_map_shape = heat_maps.shape
+
+    hist_size = 1
+    heat_map_hist = []
+
+    for kk in range(len(heat_maps)-hist_size):
+        heat_map_hist.append( heat_maps[kk:kk+hist_size, :, :])
+
+    heat_map_hist = np.array(heat_map_hist)
+    action_hist = np.copy(actions[hist_size:])
+
+    nn_size = [64, 64, 64, 16]
+    batch_size = 64
+    learning_rate = 5e-4
     epochs = 200
-    evaluations = 50
 
-    imitation_learning(states, labels, env_id, nn_size, conv_layers, batch_size, learning_rate, epochs,
-                       evaluations)
+
+
+
+    imitation_learning(heat_map_hist, action_hist, hist_size, nn_size, batch_size, learning_rate, epochs)
 
 if __name__ == '__main__':
     main()
