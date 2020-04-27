@@ -6,7 +6,7 @@ show_cropped_point_cloud = False
 show_selected_stripes = False
 show_height_map = False
 
-def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
+def HeatMap(p_cloud, scan_y_range=[-0.7,0.7], x_res = 100):
 
     episode_heatmaps = []
     actions = []
@@ -70,7 +70,7 @@ def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
 
     # ---sort stripes according to x values
     for j in range(num_of_stripes):
-        st_test_ind = np.argsort(st[pp, 0])
+        st_test_ind = np.argsort(st[j, 0])
         st[j][0][:] = st[j][0][st_test_ind]
         st[j][1][:] = st[j][1][st_test_ind]
         st[j][2][:] = st[j][2][st_test_ind]
@@ -95,15 +95,11 @@ def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
             h_map[k, jj] = max_val
 
     if show_height_map:
-        as_animation = True
-        if as_animation:
-            plt.matshow(h_map)
-            plt.show(block=False)
-            plt.pause(1)
-            plt.close()
-        else:
-            plt.matshow(h_map)
-            plt.show()
+        plt.imshow(h_map)
+        plt.show(block=False)
+        plt.pause(0.01)
+        # # plt.close()
+
 
     frame_time = time.time() - start_time
 

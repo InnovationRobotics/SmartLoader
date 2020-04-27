@@ -8,7 +8,7 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, TwistStamped
-from grid_map_msgs.msg import GridMap
+# from grid_map_msgs.msg import GridMap
 
 import os
 import time
@@ -16,8 +16,6 @@ import numpy as np
 import math
 from LLC import pid
 from matplotlib import pyplot as plt
-
-from src.EpisodeManager import *
 
 def quatToEuler(quat):
     x = quat[0]
@@ -129,8 +127,8 @@ class LLCEnv:
         joyactions = np.zeros(6)
 
         # ONLY LIFT AND PITCH
-        joyactions[3] = pd_action[1] # blade pitch
-        joyactions[4] = pd_action[0] # blade lift
+        joyactions[3] = pd_action[0] # blade pitch
+        joyactions[4] = pd_action[1] # blade lift
 
         return joyactions
 
@@ -215,7 +213,7 @@ class LLCEnv:
 
         # do action
         ## both actions together
-        pd_action = np.array([lift_output, pitch_output])
+        pd_action = np.array([pitch_output, lift_output])
         self.do_action(pd_action)
         ## alternating actions
         # self.do_action([lift_output, 0])

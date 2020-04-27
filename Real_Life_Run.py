@@ -12,6 +12,7 @@ import ros_numpy
 # from grid_map_msgs.msg import GridMap
 from HeatMapGen import HeatMap
 from matplotlib import pyplot as plt
+from LLC import LLC_pid
 
 import os
 import time
@@ -118,7 +119,6 @@ class SmartLoader:
 
         joymessage = Joy()
 
-        # self.setDebugAction(action) # DEBUG
         joyactions = self.AgentToJoyAction(agent_action)  # clip actions to fit action_size
 
         joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
@@ -138,13 +138,6 @@ class SmartLoader:
         joyactions[3] = agent_action[2] # blade pitch
         joyactions[4] = agent_action[3] # arm up/down
 
-        # translate 4 dim agent action to 5 dim simulation action
-        # agent action: [steer, speed, blade_pitch, arm_height]
-        # simulation joystick actions: [steer, speed backwards, blade pitch, arm height, speed forwards]
-
-        # joyactions[2] = 1. # default value
-        # joyactions[5] = 1. # default value
-
         if agent_action[1] < 0: # drive backwards
             joyactions[2] = -2*agent_action[1] - 1
 
@@ -161,7 +154,8 @@ class SmartLoader:
         self.arm_lift = []
         self.arm_pitch = []
         self.heat_map = []
-        self.keys = ['ArmHeight', 'BladePitch']
+
+        self.LLC = LLC_pid.LLC()
 
         # For time step
         self.current_time = time.time()
@@ -187,14 +181,10 @@ class SmartLoader:
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
-        # wait for set up
-        # time.sleep(3)
+        time.sleep(1)
 
-    def step(self, action):
 
-        # while True: # wait for all topics to arrive
-        #     if all(key in self.world_state for key in self.keys):
-        #         break
+    def step(self):
 
         # for even time steps
         self.current_time = time.time()
@@ -210,13 +200,17 @@ class SmartLoader:
 
         # current state
         h_map = self.heat_map
-        # arm_lift = self.world_state['ArmHeight'].item(0)
-        # arm_pitch = self.world_state['BladePitch'].item(0)
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
+        print('height = ', arm_lift, 'pitch = ', arm_pitch)
 
-        obs = [h_map]#, arm_lift, arm_pitch]
+        obs = [h_map, arm_lift, arm_pitch]
+
+        pd_action = self.LLC.step(obs)
+        action = np.concatenate(([0., 0.], pd_action))
 
         # do action
-        if action :
+        if action:
             self.do_action(action)
 
         return obs
@@ -226,8 +220,8 @@ if __name__ == '__main__':
     env = SmartLoader()
     for i in range(100000):
         action = []
-        ob = env.step(action)
-        h_map = ob[0]
+        obs = env.step()
+        h_map = obs[0]
 
         # plt.matshow(h_map)
         # plt.show(block=False)
