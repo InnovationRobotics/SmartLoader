@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     env = SmartLoader()
     jobs = ['BC', 'PD', 'dump']
-    job = jobs[0]
+    job = jobs[2]
     obs = env.reset(job)
 
     if job == 'BC':
@@ -30,7 +30,7 @@ if __name__ == '__main__':
     elif job == 'PD':
     # PID TEST:
         for i in range(500):
-            action = env.LLC.step(i, obs)
+            action = env.LLC.step(obs, i)
             obs = env.step(action)
 
         env.LLC.save_plot(name='step response 2')
@@ -40,9 +40,9 @@ if __name__ == '__main__':
         stop = False
         i = 0
         while not stop:
-            action = env.LLC.step(i, obs)
+            action = env.LLC.step(obs, i)
             obs = env.step(action)
-            if obs[2] == env.LLC.pitch_pid.SetPoint:
+            if obs[2] >= env.LLC.pitch_pid.SetPoint:
                 stop = True
             i += 1
 

@@ -184,6 +184,9 @@ class SmartLoader:
 
     def reset(self, job):
 
+        # wait for topics to update
+        time.sleep(3)
+
         # current state
         h_map = self.heat_map
         arm_lift = self.world_state['ArmHeight'].item(0)
@@ -200,8 +203,8 @@ class SmartLoader:
             # define and reset PD
             self.LLC = LLC_pid.LLC()
             # set pid set point for blade dumping mode
-            self.LLC.lift_pid.SetPoint = 250.
-            self.LLC.pitch_pid.SetPoint = 200.
+            self.LLC.lift_pid.SetPoint = 220.
+            self.LLC.pitch_pid.SetPoint = 250.
 
         return obs
 
