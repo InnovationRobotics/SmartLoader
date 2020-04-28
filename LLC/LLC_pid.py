@@ -1,7 +1,6 @@
 import os
 import time
 import numpy as np
-import math
 from matplotlib import pyplot as plt
 
 
@@ -30,26 +29,17 @@ class LLC:
         self.pitch_pid.setSampleTime(self.TIME_STEP)
 
 
-    def reset(self, obs):
-        # current state
-        h_map = obs[0]
-        current_lift = obs[1]
-        current_pitch = obs[2]
-
-        self.lift_pid.SetPoint = current_lift
-        self.pitch_pid.SetPoint = current_pitch
-
-
-    def step(self, i, obs):
+    def step(self, obs, i=None):
 
         heat_map = obs[0]
         current_lift = obs[1]
         current_pitch = obs[2]
-        print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
 
-        if i % 100 == 0:
-            self.lift_pid.SetPoint += 20
-            self.pitch_pid.SetPoint += 20
+        # if i:
+        #     if i % 100 == 0:
+        #         self.lift_pid.SetPoint += 20
+        #         self.pitch_pid.SetPoint += 20
+        print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
 
         # pid update
         lift_action = self.lift_pid.update(current_lift)

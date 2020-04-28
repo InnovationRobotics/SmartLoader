@@ -181,10 +181,8 @@ class SmartLoader:
 
         time.sleep(1)
 
-        self.reset()
 
-
-    def reset(self):
+    def reset(self, job):
 
         # current state
         h_map = self.heat_map
@@ -192,9 +190,18 @@ class SmartLoader:
         arm_pitch = self.world_state['BladePitch'].item(0)
         obs = [h_map, arm_lift, arm_pitch]
 
-        # define and reset PD
-        self.LLC = LLC_pid.LLC()
-        self.LLC.reset(obs)
+        if job == 'PD':
+            # define and reset PD
+            self.LLC = LLC_pid.LLC()
+            self.LLC.lift_pid.SetPoint = arm_lift
+            self.LLC.pitch_pid.SetPoint = arm_pitch
+
+        if job == 'dump':
+            # define and reset PD
+            self.LLC = LLC_pid.LLC()
+            # set pid set point for blade dumping mode
+            self.LLC.lift_pid.SetPoint = 250.
+            self.LLC.pitch_pid.SetPoint = 200.
 
         return obs
 
