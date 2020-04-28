@@ -113,7 +113,7 @@ class SmartLoader:
         ### based on velodyne FOV [330:25]
         np_pc = ros_numpy.numpify(data)
         xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
-        self.heat_map = HeatMap(xyz_array)
+        self.heat_map = HeatMap(xyz_array)[0]
 
     def do_action(self, agent_action):
 
@@ -155,8 +155,6 @@ class SmartLoader:
         self.arm_pitch = []
         self.heat_map = []
 
-        self.LLC = LLC_pid.LLC()
-
         # For time step
         self.current_time = time.time()
         self.last_time = self.current_time
@@ -183,8 +181,25 @@ class SmartLoader:
 
         time.sleep(1)
 
+        self.reset()
 
-    def step(self):
+
+    def reset(self):
+
+        # current state
+        h_map = self.heat_map
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
+        obs = [h_map, arm_lift, arm_pitch]
+
+        # define and reset PD
+        self.LLC = LLC_pid.LLC()
+        self.LLC.reset(obs)
+
+        return obs
+
+
+    def step(self, action):
 
         # for even time steps
         self.current_time = time.time()
@@ -202,26 +217,23 @@ class SmartLoader:
         h_map = self.heat_map
         arm_lift = self.world_state['ArmHeight'].item(0)
         arm_pitch = self.world_state['BladePitch'].item(0)
-        print('height = ', arm_lift, 'pitch = ', arm_pitch)
 
         obs = [h_map, arm_lift, arm_pitch]
 
-        pd_action = self.LLC.step(obs)
-        action = np.concatenate(([0., 0.], pd_action))
-
-        # do action
-        if action:
+        if action.size:
             self.do_action(action)
 
         return obs
-
-if __name__ == '__main__':
-
-    env = SmartLoader()
-    for i in range(100000):
-        action = []
-        obs = env.step()
-        h_map = obs[0]
+#
+# if __name__ == '__main__':
+#
+#     env = SmartLoader()
+#     for i in range(500):
+#         joy = [] # option to control by joystick
+#         obs = env.step(joy, i)
+#         h_map = obs[0]
+#
+#     env.LLC.save_plot(name='step response 2')
 
         # plt.matshow(h_map)
         # plt.show(block=False)

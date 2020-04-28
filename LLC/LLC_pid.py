@@ -11,43 +11,66 @@ class LLC:
 
         self.lift = []
         self.pitch = []
+        self.lift_action = []
+        self.pitch_action = []
+        self.lift_setPoint = []
+        self.pitch_setPoint = []
 
         self.TIME_STEP = 0.05 # match env time step
 
         # Define PIDs
         # armHeight = lift = [down:145 - up:265]
         self.lift_pid = PID(P=0.002, I=0.0001, D=0.00001, saturation=True)
-        self.lift_pid.SetPoint = 200.
+        # self.lift_pid.SetPoint = 200.
         self.lift_pid.setSampleTime(self.TIME_STEP)
 
         # armShortHeight = pitch = [up:70 - down:265]
         self.pitch_pid = PID(P=-0.008, I=0, D=0.001, saturation=True)
-        self.pitch_pid.SetPoint = 150.
+        # self.pitch_pid.SetPoint = 150.
         self.pitch_pid.setSampleTime(self.TIME_STEP)
 
 
-    def step(self, obs):
+    def reset(self, obs):
+        # current state
+        h_map = obs[0]
+        current_lift = obs[1]
+        current_pitch = obs[2]
+
+        self.lift_pid.SetPoint = current_lift
+        self.pitch_pid.SetPoint = current_pitch
+
+
+    def step(self, i, obs):
 
         heat_map = obs[0]
         current_lift = obs[1]
         current_pitch = obs[2]
+        print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
+
+        if i % 100 == 0:
+            self.lift_pid.SetPoint += 20
+            self.pitch_pid.SetPoint += 20
 
         # pid update
-        lift_output = self.lift_pid.update(current_lift)
-        pitch_output = self.pitch_pid.update(current_pitch)
+        lift_action = self.lift_pid.update(current_lift)
+        pitch_action = self.pitch_pid.update(current_pitch)
 
-        # do action (both actions together)
-        action = np.array([pitch_output, lift_output])
-        print('lift action = ', lift_output, 'pitch action = ', pitch_output)
+        # do action (both actions together, steer abd speed 0)
+        pd_action = np.array([pitch_action, lift_action])
+        action = np.concatenate(([0., 0.], pd_action))
 
         # save data
         self.lift.append(current_lift)
         self.pitch.append(current_pitch)
+        self.lift_action.append(lift_action)
+        self.pitch_action.append(pitch_action)
+        self.lift_setPoint.append(self.lift_pid.SetPoint)
+        self.pitch_setPoint.append(self.pitch_pid.SetPoint)
 
         return action
 
 
-    def save_plot(self):
+    def save_plot(self, name):
         # init plot
         length = len(self.lift)
         x = np.linspace(0, length, length)
@@ -56,19 +79,23 @@ class LLC:
         ax_pitch.set_title('pitch')
 
         # plot set points
-        ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
-        ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
+        # for const set point
+        # ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
+        # ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
+        ax_lift.plot(x, self.lift_setPoint, color='blue')
+        ax_pitch.plot(x, self.pitch_setPoint, color='blue')
 
         # plot data
-        ax_lift.scatter(x, self.lift, color='red')
-        ax_pitch.scatter(x, self.pitch, color='red')
+        ax_lift.plot(x, self.lift, color='red')
+        ax_pitch.plot(x, self.pitch, color='red')
 
         # create plot folder if it does not exist
-        try:
-            plot_folder = "{}/plots".format(self._output_folder)
-        except FileNotFoundError:
-            os.makedirs(plot_folder)
-        fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
+        # try:
+        #     plot_folder = "{}/plots".format(self._output_folder)
+        # except FileNotFoundError:
+        #     os.makedirs(plot_folder)
+        # fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
+        fig.savefig(name)
         print('figure saved!')
 
 

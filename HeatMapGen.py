@@ -4,9 +4,9 @@ import time
 
 show_cropped_point_cloud = False
 show_selected_stripes = False
-show_height_map = False
+show_height_map = True
 
-def HeatMap(p_cloud, scan_y_range=[-0.7,0.7], x_res = 100):
+def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
 
     episode_heatmaps = []
     actions = []
