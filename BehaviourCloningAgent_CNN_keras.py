@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 from keras.layers import Dense, Input, Conv1D, Conv2D, Conv3D, MaxPooling2D, Flatten, BatchNormalization, concatenate, Dropout, Activation
 from keras.optimizers import Adam, SGD, Nadam, Adamax, Adagrad
-from keras.models import Model, load_model
+from keras.models import Model, load_model, model_from_json
 from keras.callbacks import TensorBoard, ModelCheckpoint
 from keras.utils import plot_model
 from matplotlib import pyplot as plt
@@ -13,7 +13,7 @@ import talos
 # translate chosen action (array) to joystick action (dict)
 
 
-def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, epochs, new_model = True, train = True ):
+def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, epochs, new_model=False, train=False):
 
     # eval_index = np.random.randint(len(actions), size=int(len(actions)*evals))
     # eval_actions = actions[eval_index]
@@ -25,7 +25,7 @@ def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, e
 
     if new_model:   ## create new sequential keras model
 
-        heat_maps = heat_maps.reshape(len(heat_maps), hist_size, 100, 6)
+        heat_maps = heat_maps.reshape(len(heat_maps), hist_size, 100, 7)
 
         # hmap_size = heat_maps[0].reshape(1,100,6).shape
         hmap_size = heat_maps.shape[1:]
@@ -36,14 +36,15 @@ def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, e
 
         conv_l = hmap_input
 
-        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
+        conv_l = Conv2D(filters=32, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
         # conv_l = Activation('elu')(conv_l)
         # conv_l = BatchNormalization()(conv_l)
-        conv_l = Dropout(rate=0.0)(conv_l)
-        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
-        conv_l = Conv2D(filters=8, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
-        conv_l = Conv2D(filters=64, kernel_size=(4, 4), strides=(1, 1), padding='same')(conv_l)
-        conv_l = Dropout(rate=0.0)(conv_l)
+        # conv_l = Dropout(rate=0.25)(conv_l)
+        conv_l = Conv2D(filters=32, kernel_size=(2, 2), strides=(1, 1), padding='same')(conv_l)
+        # conv_l = Conv2D(filters=64, kernel_size=(3, 3), strides=(1, 1), padding='same')(conv_l)
+
+        # conv_l = Conv2D(filters=64, kernel_size=(4, 4), strides=(1, 1), padding='same')(conv_l)
+        # conv_l = Dropout(rate=0.25)(conv_l)
         # conv_l = Activation('elu')(conv_l)
         # conv_l = BatchNormalization()(conv_l)
         # conv_l = Dropout(rate=0.1)(conv_l)
@@ -78,7 +79,14 @@ def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, e
         # tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
 
     else:   ### load existing sequential model
-       model = load_model('/home/graphics/git/SmartLoader/saved_models/Heatmap/test_model')
+        json_file = open('/home/graphics/git/SmartLoader/Push_BC_best_l/Push_BC_best_l_model.json', 'rb')
+        loaded_model_json = json_file.read()
+        json_file.close()
+        model = model_from_json(loaded_model_json)
+        # load weights into new model
+        model.load_weights('/home/graphics/git/SmartLoader/Push_BC_best_l/Push_BC_best_l_model.h5')
+
+        model.save('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/talos_001_model_keras')
 
     if train:   ## train new agent
         hist = model.fit(
@@ -87,29 +95,34 @@ def imitation_learning(heat_maps, actions, hist_size, nn_size, batch_size, lr, e
             batch_size=batch_size,
             verbose=2,
             epochs=epochs,
-            validation_split=0.2
+            validation_split=0.1
         )
-        model.save('/home/graphics/git/SmartLoader/saved_models/Heatmap/test_model')
+        model.save('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/keras_model')
 
-    x = range(0, epochs)
-    plt.plot(x, hist.history['loss'], label="Training Loss")
-    plt.plot(x, hist.history['val_loss'], label="Eval Loss")
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss Value')
-    plt.legend(loc="upper left")
-    plt.grid(True)
-    plt.show()
+
+    # x = range(0, epochs)
+    # plt.plot(x, hist.history['loss'], label="Training Loss")
+    # plt.plot(x, hist.history['val_loss'], label="Eval Loss")
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Loss Value')
+    # plt.legend(loc="upper left")
+    # plt.grid(True)
+    # plt.show()
 
 
     print(' ------------ now lets evaluate -------------')
 
-    # loss = []
-    # for k in range(len(eval_actions)):
-    #     action = model.predict(eval_heat_maps[k].reshape(1,1,100,6))
-    #     loss.append(np.abs(action - eval_actions[k]))
-    # avg_loss = np.mean(loss)
-    # print('avarage loss for {} evaluations: {}'.format(len(eval_actions),avg_loss))
-    #
+    loss = []
+    num_of_evals = 1000
+    for k in range(num_of_evals):
+        index = np.random.randint(len(actions))
+        action = model.predict(heat_maps[index,:,:,:].reshape(1,1,100,7))
+        label = actions[index]
+        loss.append(np.abs(action - label))
+        print(loss[-1])
+    avg_loss = np.mean(loss)
+    print('avarage loss for {} evaluations: {}'.format(num_of_evals, avg_loss))
+
 
 
 
@@ -119,13 +132,11 @@ def main():
     mission = 'PushStonesHeatMapEnv'  # Change according to algorithm
     env_id = mission + '-v0'
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/lift_23_ep/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
 
     heat_maps = np.load(expert_path+'heatmap.npy')
     states = np.load(expert_path+'states.npy')
     actions = np.load(expert_path + 'actions.npy')
-
-    heat_map_shape = heat_maps.shape
 
     hist_size = 1
     heat_map_hist = []
@@ -136,13 +147,10 @@ def main():
     heat_map_hist = np.array(heat_map_hist)
     action_hist = np.copy(actions[hist_size:])
 
-    nn_size = [64, 64, 64, 16]
-    batch_size = 64
-    learning_rate = 5e-4
-    epochs = 200
-
-
-
+    nn_size = [256, 64, 32]
+    batch_size = 128
+    learning_rate = 5e-5
+    epochs = 500
 
     imitation_learning(heat_map_hist, action_hist, hist_size, nn_size, batch_size, learning_rate, epochs)
 

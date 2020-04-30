@@ -8,13 +8,14 @@ from keras.utils import plot_model
 from matplotlib import pyplot as plt
 import numpy as np
 import talos
+from talos.commands.restore import Restore
+import pickle
 
 
 # translate chosen action (array) to joystick action (dict)
 
 
-# def imitation_learning(heat_maps, actions, x_val, y_val, params):
-def imitation_learning(heat_maps, actions, params):
+def imitation_learning(heat_maps, actions, x_val, y_val, params):
 
     hmap_size = heat_maps.shape[1:]
     ac_size = actions[0].shape[0]
@@ -65,39 +66,26 @@ def imitation_learning(heat_maps, actions, params):
 
     print(model.summary())
 
-    # test_name = 'keras_test_1'
-    # log_dir = '/home/graphics/git/SmartLoader/log_dir/' + test_name + '/'
-    # tensorboard_callback = keras.callbacks.TensorBoard(log_dir=log_dir)
-
-    # hist = model.fit(
-    #     x=heat_maps,
-    #     y=actions,
-    #     batch_size=params['batch_size'],
-    #     #callbacks=[talos.utils.live()],
-    #     verbose=2,
-    #     epochs=params['epochs'],
-    #     validation_data=[x_val, y_val])
-
     hist = model.fit(
         x=heat_maps,
         y=actions,
         batch_size=params['batch_size'],
+        #callbacks=[talos.utils.live()],
         verbose=2,
         epochs=params['epochs'],
-        validation_split=0.2)
+        validation_data=[x_val, y_val])
 
-    # model.save('/home/graphics/git/SmartLoader/saved_models/Heatmap/test_model')
 
-    # return hist, model
+    return hist, model
 
-    x = range(0, params['epochs'])
-    plt.plot(x, hist.history['loss'], label="Training Loss")
-    plt.plot(x, hist.history['val_loss'], label="Eval Loss")
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss Value')
-    plt.legend(loc="upper left")
-    plt.grid(True)
-    plt.show()
+    # x = range(0, params['epochs'])
+    # plt.plot(x, hist.history['loss'], label="Training Loss")
+    # plt.plot(x, hist.history['val_loss'], label="Eval Loss")
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Loss Value')
+    # plt.legend(loc="upper left")
+    # plt.grid(True)
+    # plt.show()
 
 
     # print(' ------------ now lets evaluate -------------')
@@ -115,10 +103,11 @@ def imitation_learning(heat_maps, actions, params):
 ###########  labels[550]  #####  model.predict(states[550].reshape([1,ob_size]))
 def main():
 
-    mission = 'PushStonesHeatMapEnv'  # Change according to algorithm
-    env_id = mission + '-v0'
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/lift_23_ep/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
+
+    # r_model = Restore('imitation_learning.zip')
+
 
     heat_maps = np.load(expert_path+'heatmap.npy')
     states = np.load(expert_path+'states.npy')
@@ -147,7 +136,7 @@ def main():
     #      'activations' : ['relu', 'elu', 'sigmoid'],
     #      'output_activations' : ['relu', 'elu', 'sigmoid']}
 
-    hist_size=1
+    hist_size = 1
 
     heat_map_hist = []
 
@@ -157,55 +146,61 @@ def main():
     heat_maps = np.array(heat_map_hist)
     actions = actions[hist_size:]
 
-    heat_maps = heat_maps.reshape(len(heat_maps), hist_size, 100, 6)
+    heat_maps = heat_maps.reshape(len(heat_maps), hist_size, 100, 7)
 
-    # p = {'input_conv_kernel_size': [(2, 2), (3, 3)],
-    #      'input_conv_filters': [8, 16, 32],
-    #      'conv_dropout': [0.0, 0.25],
-    #      'conv_layers': [1, 2],
-    #      'conv_kernel_size' : [(2, 2), (3, 3)],
-    #      'conv_filters' : [8, 16, 32],
-    #      'conv_strides': [(1, 1), (2, 2)],
-    #      'batch_norm': [False],
-    #      'output_conv_kernel_size': [(2, 2), (3, 3), (4, 4)],
-    #      'output_conv_filters': [16, 32, 64],
-    #      'input_layer_size' : [32, 64, 128],
-    #      'hidden_layers' : [1, 2, 3],
-    #      'layer_size' : [32, 64, 128],
-    #      'output_layer_size': [16, 32, 64],
-    #      'output_bias': [True],
-    #      'batch_size': [64],
-    #      'learning_rate': [1e-4, 5e-4, 1e-5, 5e-5, 1e-6],
-    #      'epochs': [400],
-    #      'optimizer': ['adam'],
-    #      'activations': ['relu'],
-    #      'output_activations': ['sigmoid']}
+    p = {'input_conv_kernel_size': [(2, 2), (3, 3)],
+         'input_conv_filters': [8, 16, 32],
+         'conv_dropout': [0.0, 0.25],
+         'conv_layers': [1, 2],
+         'conv_kernel_size': [(2, 2), (3, 3)],
+         'conv_filters': [8, 16, 32],
+         'conv_strides': [(1, 1), (2, 2)],
+         'batch_norm': [False],
+         'output_conv_kernel_size': [(2, 2), (3, 3), (4, 4)],
+         'output_conv_filters': [16, 32, 64],
+         'input_layer_size' : [64, 128, 256],
+         'hidden_layers': [1, 2, 3],
+         'layer_size': [64, 128, 256],
+         'output_layer_size': [16, 32, 64],
+         'output_bias': [False, True],
+         'batch_size': [64],
+         'learning_rate': [1e-4, 2.5e-4, 5e-4],
+         'epochs': [400],
+         'optimizer': ['adam'],
+         'activations': ['relu'],
+         'output_activations': ['sigmoid']}
+    #
+    # p = {'input_conv_kernel_size': (2, 2),
+    #      'input_conv_filters': 8,
+    #      'conv_dropout': 0.0,
+    #      'conv_layers': 2,
+    #      'conv_kernel_size': (2, 2),
+    #      'conv_filters': 8,
+    #      'conv_strides': (1, 1),
+    #      'batch_norm': False,
+    #      'output_conv_kernel_size': (4, 4),
+    #      'output_conv_filters': 64,
+    #      'input_layer_size': 64,
+    #      'hidden_layers': 2,
+    #      'layer_size': 64,
+    #      'output_layer_size': 16,
+    #      'output_bias': True,
+    #      'batch_size': 64,
+    #      'learning_rate': 5e-4,
+    #      'epochs': 50,
+    #      'optimizer': 'adam',
+    #      'activations': 'relu',
+    #      'output_activations': 'sigmoid'}
 
-    p = {'input_conv_kernel_size': (2, 2),
-         'input_conv_filters': 8,
-         'conv_dropout': 0.0,
-         'conv_layers': 2,
-         'conv_kernel_size': (2, 2),
-         'conv_filters': 8,
-         'conv_strides': (1, 1),
-         'batch_norm': False,
-         'output_conv_kernel_size': (4, 4),
-         'output_conv_filters': 64,
-         'input_layer_size': 64,
-         'hidden_layers': 2,
-         'layer_size': 64,
-         'output_layer_size': 16,
-         'output_bias': True,
-         'batch_size': 64,
-         'learning_rate': 5e-4,
-         'epochs': 50,
-         'optimizer': 'adam',
-         'activations': 'relu',
-         'output_activations': 'sigmoid'}
+    # imitation_learning(heat_maps, actions, params=p)
 
-    imitation_learning(heat_maps, actions, params=p)
+    t = talos.Scan(x=heat_maps, y=actions, model=imitation_learning, params=p, experiment_name='BC_HM_Push',
+                   fraction_limit=0.000002)
 
-    # talos.Scan(x=heat_maps, y=actions, model=imitation_learning, params=p, experiment_name='test_0', fraction_limit=1, save_weights=True)
+    talos.Deploy(scan_object=t, model_name='Push_BC_best_vl',  metric='val_loss', asc=True)
+    talos.Deploy(scan_object=t, model_name='Push_BC_best_l', metric='loss', asc=True)
+
+
 
 if __name__ == '__main__':
     main()

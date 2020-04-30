@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import
+
 from os import walk
 import csv
 import time
@@ -22,8 +24,8 @@ def joy_to_agent(joy_actions):
     return agent_action
 
 
-jobs = ['clip_point_cloud_values', 'concat_recodrings']
-job = jobs[0]
+jobs = ['clip_point_cloud_values', 'concat_recodrings', 'pos_aprox']
+job = jobs[2]
 
 # for ep_dir in range(len(dirnames)):
 #     for (_, _, filenames) in walk(dirpath + dirnames[ep_dir]):
@@ -33,7 +35,7 @@ job = jobs[0]
 
 if job == 'clip_point_cloud_values':
 
-    recordings_path = '/home/graphics/Desktop/HeatMap/lift/'
+    recordings_path = '/home/graphics/push_28_04_all/'
     show_cropped_point_cloud = False
     show_selected_stripes = False
     show_height_map = True
@@ -50,9 +52,11 @@ if job == 'clip_point_cloud_values':
             break
 
         sorter = []
+        popper = []
         for file_num, file_name in enumerate(filenames):
             if 'bag' in file_name:
-                filenames.pop(file_num)
+                popper.append(file_num)
+                continue
             if 'csv' in file_name:  # read csv and create state-action trajectories
                 with open(dirpath+ep_dir+'/'+file_name) as csvfile:
                     reader = csv.reader(csvfile)
@@ -65,7 +69,8 @@ if job == 'clip_point_cloud_values':
                         act = [float(i) for i in act]
                         actions.append(joy_to_agent(act))
                         states.append(row[5:9])
-                filenames.pop(file_num)
+                popper.append(file_num)
+                continue
 
             indexer = []
             for str_val in filenames[file_num][26:-1]:  # sort pointcloud files
@@ -73,23 +78,24 @@ if job == 'clip_point_cloud_values':
                     sorter.append(int("".join(indexer)))
                     break
                 else:
-                    # indexer.append(int(str_val))
                     indexer.append(str_val)
+
+        for index in sorted(popper, reverse=True):
+            del filenames[index]
+
         sorted_files = list.copy(filenames)
+        sorted_acts = list.copy(actions)
+        sorted_states = list.copy(states)
 
         for jj in range(len(sorter)):  # create a new sorted list of pointcloud files
             # print('insert: ', filenames[jj], 'into place: ', sorter[jj]-1)
             sorted_files[sorter[jj]-1] = filenames[jj]
+            sorted_acts[sorter[jj] - 1] = actions[jj]
+            sorted_states[sorter[jj] - 1] = states[jj]
 
-        stripe_range = np.arange(-0.5,0.2,0.1)
+        stripe_range = np.arange(-0.6,0.2,0.1)
         num_of_stripes = len(stripe_range)-1
         x_resolution = 100
-        last_max_st = []
-        last_max_st.append(np.zeros([x_resolution, num_of_stripes]))
-        last_max_st.append(np.zeros([x_resolution, num_of_stripes]))
-        last_max_st.append(np.zeros([x_resolution, num_of_stripes]))
-        last_max_st.append(np.zeros([x_resolution, num_of_stripes]))
-        last_max_st.append(np.zeros([x_resolution, num_of_stripes]))
         step_count = 0
 
         skipped_pc = 0
@@ -172,17 +178,14 @@ if job == 'clip_point_cloud_values':
                     max_st[k, jj] = max_val
 
             if show_height_map:
-                if step_count < 5:
-                    diff_st = max_st - last_max_st[0]
+                as_animation = True
+                if as_animation:
+                    plt.imshow(max_st, aspect=0.2)
+                    plt.show(block=False)
+                    plt.pause(0.01)
                 else:
-                    diff_st = max_st - last_max_st[step_count-5]
-                plt.matshow(max_st)
-                # plt.colorbar()
-                plt.show(block=False)
-                plt.pause(1)
-                plt.close()
-                step_count+=1
-                last_max_st.append(max_st)
+                    plt.matshow(max_st)
+                    plt.show()
 
             episode_heatmaps.append(max_st)
             frame_time = time.time() - start_time
@@ -190,8 +193,8 @@ if job == 'clip_point_cloud_values':
         ep_counter += 1
 
     np.save(recordings_path + 'heatmap', episode_heatmaps)
-    np.save(recordings_path + 'states', states)
-    np.save(recordings_path + 'actions', actions)
+    np.save(recordings_path + 'states', sorted_states)
+    np.save(recordings_path + 'actions', sorted_acts)
 
 
 
@@ -219,3 +222,34 @@ if job == 'concat_recodrings':
     np.save('/home/graphics/git/SmartLoader/saved_experts/Push/1_rock/100_ep_full/rew', rew)
     np.save('/home/graphics/git/SmartLoader/saved_experts/Push/1_rock/100_ep_full/ep_ret', ep_ret)
     np.save('/home/graphics/git/SmartLoader/saved_experts/Push/1_rock/100_ep_full/ep_str', ep_str)
+
+if job == 'pos_aprox':
+
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
+
+    heat_maps = np.load(expert_path+'heatmap.npy')
+    
+    num_of_labels = 30
+    inputs = []
+    labels = np.zeros([num_of_labels,2])
+
+    for k in range(num_of_labels):
+
+        index = np.random.randint(len(heat_maps))
+        h_map = heat_maps[index,:,:].reshape(100,7)
+        plt.figure(figsize=(10,10))
+        plt.imshow(h_map)
+        plt.show()
+        plt.close()
+
+        x_b = input('x_body Position: ')
+        y_b = input('y_body Position: ')
+        x_s = input('x_shovle Position: ')
+        y_s = input('y_shovle Position: ')
+
+        inputs.append(h_map)
+        labels[k,:] = np.array([int(x),(y)])
+
+    np.save(expert_path+'pos_map', inputs)
+    np.save(expert_path+'pos_label', labels)
+
