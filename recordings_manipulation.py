@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import
+from matplotlib.pyplot import ion
 
 from os import walk
 import csv
@@ -24,32 +24,35 @@ def joy_to_agent(joy_actions):
     return agent_action
 
 
-jobs = ['clip_point_cloud_values', 'concat_recodrings', 'pos_aprox']
-job = jobs[2]
+jobs = ['heat_map_generator', 'concat_recodrings', 'pos_aprox']
+job = jobs[0]
 
-# for ep_dir in range(len(dirnames)):
-#     for (_, _, filenames) in walk(dirpath + dirnames[ep_dir]):
-#         for file in filenames:
-#             if 'bag' in file:
-#                 break
-
-if job == 'clip_point_cloud_values':
+if job == 'heat_map_generator':
 
     recordings_path = '/home/graphics/push_28_04_all/'
-    show_cropped_point_cloud = False
-    show_selected_stripes = False
+    show_point_cloud = False
     show_height_map = True
 
-    episode_heatmaps = []
-    actions = []
-    states = []
+    recording_heatmaps = []
+    recording_states = []
+    recording_actions = []
+
     ep_counter = 1
+
+    stripe_limits = [-0.8, 0.8]
+
+    stripe_range = np.arange(stripe_limits[0], stripe_limits[1]+0.1, 0.1)
+    num_of_stripes = len(stripe_range) - 1
+    x_res = 100
 
     for (dirpath, dirnames, _) in walk(recordings_path):  # crate a list of episodes
         break
     for ep_dir in dirnames:   ## iterate over each
         for (_, _, filenames) in walk(dirpath+ep_dir):  # create a list of pointcloud steps for each episode
             break
+
+        actions = []
+        states = []
 
         sorter = []
         popper = []
@@ -84,21 +87,14 @@ if job == 'clip_point_cloud_values':
             del filenames[index]
 
         sorted_files = list.copy(filenames)
-        sorted_acts = list.copy(actions)
-        sorted_states = list.copy(states)
 
         for jj in range(len(sorter)):  # create a new sorted list of pointcloud files
             # print('insert: ', filenames[jj], 'into place: ', sorter[jj]-1)
             sorted_files[sorter[jj]-1] = filenames[jj]
-            sorted_acts[sorter[jj] - 1] = actions[jj]
-            sorted_states[sorter[jj] - 1] = states[jj]
-
-        stripe_range = np.arange(-0.6,0.2,0.1)
-        num_of_stripes = len(stripe_range)-1
-        x_resolution = 100
-        step_count = 0
 
         skipped_pc = 0
+        episode_heatmaps = []
+
         for file in sorted_files:
 
             start_time = time.time()
@@ -112,16 +108,15 @@ if job == 'clip_point_cloud_values':
             x = point_cloud[:, 1]
             y = -point_cloud[:, 2]
 
-            ind = np.where((x < -1.4) | (x > 1.5) | (z > -2))
+            ind = np.where((x < -1.4) | (x > 1.5) | (z > -2.2))
 
             x = np.delete(x, ind)
             y = np.delete(y, ind)
             z = np.delete(z, ind)
 
-            # [x, y, z] = [y, -z, -x]
             z = (z - np.min(z))/np.ptp(z)   ## normalize height [0,1]
 
-            if show_cropped_point_cloud:
+            if show_point_cloud:
                 fig = plt.figure()
                 ax = fig.add_subplot(111, projection='3d')
 
@@ -132,69 +127,47 @@ if job == 'clip_point_cloud_values':
                 ax.set_zlabel('Z Label')
                 plt.show()
 
+            pc_len = len(x)
 
-            st_ind = [] #### seperate to stripes
-            for stripe in range(num_of_stripes):
-                st_ind.append(np.where(np.logical_and(y > stripe_range[stripe], y < stripe_range[stripe+1])))
+            h_map = np.zeros([x_res, num_of_stripes])
 
+            x_A_coeff = (x_res - 1) / 3
+            x_B_coeff = (x_res - 1) / 2
 
-            # shortest = np.min( [len(st_ind[0][0]), len(st_ind[1][0]), len(st_ind[2][0])] )
-            shortest = np.inf
-            for stripe in range(num_of_stripes):
-                stripe_len = len(st_ind[stripe][0])
-                if stripe_len < shortest:
-                    shortest = stripe_len
+            # y_A_coeff = 9.375
+            # y_B_coeff = 7.5
+            #
+            # # y_A_coeff = (num_of_stripes - 1) / (num_of_stripes*0.1)
+            # # y_B_coeff = (num_of_stripes - 1) / 2
+            #
+            y_A_coeff = (num_of_stripes-1)/(stripe_limits[1]-stripe_limits[0])
+            y_B_coeff = -stripe_limits[0]*y_A_coeff
 
-
-            st = np.zeros([num_of_stripes, 3, shortest])
-            # for i in range(np.min( [len(st1_ind), len(st2_ind), len(st3_ind)] )):
-            for i in range(num_of_stripes):    ## populate an array of xyz coordinates for each stripe
-                st[i, 0, :] = x[st_ind[i][0][0:shortest]]
-                st[i, 1, :] = y[st_ind[i][0][0:shortest]]
-                st[i, 2, :] = z[st_ind[i][0][0:shortest]]
-
-            for pp in range(num_of_stripes):
-                st_test_ind = np.argsort(st[pp,0])
-                st[pp][0][:] = st[pp][0][st_test_ind]
-                st[pp][1][:] = st[pp][1][st_test_ind]
-                st[pp][2][:] = st[pp][2][st_test_ind]
-
-            if show_selected_stripes:
-                fig = plt.figure()
-                ax = fig.add_subplot(111, projection='3d')
-
-                ax.scatter(st[0:num_of_stripes,0,:], st[0:num_of_stripes,1,:], st[0:num_of_stripes,2,:], s=0.1)
-
-                ax.set_xlabel('X Label')
-                ax.set_ylabel('Y Label')
-                ax.set_zlabel('Z Label')
-                plt.show()
-
-            max_st = np.zeros([x_resolution,num_of_stripes])
-            jump = int(shortest/x_resolution)
-            for jj in range(num_of_stripes):   ## iterate over each stripe
-                for k in range(x_resolution):   ## crate a 100*3 heatmap
-                    max_val = np.max( st[jj, 2, k*jump:((k+1)*jump)] )
-                    max_st[k, jj] = max_val
+            for point in range(pc_len):
+                if (y[point] < stripe_limits[0]) | (y[point] > stripe_limits[1]+0.1):
+                    continue
+                x_ind = int(x[point] * x_A_coeff + x_B_coeff)
+                y_ind = int(y[point] * y_A_coeff + y_B_coeff)
+                if z[point] > h_map[x_ind, y_ind]:
+                    h_map[x_ind, y_ind] = z[point]
 
             if show_height_map:
-                as_animation = True
-                if as_animation:
-                    plt.imshow(max_st, aspect=0.2)
-                    plt.show(block=False)
-                    plt.pause(0.01)
-                else:
-                    plt.matshow(max_st)
-                    plt.show()
+                plt.imshow(h_map, aspect=0.1)
+                plt.show(block=False)
+                plt.pause(0.001)
 
-            episode_heatmaps.append(max_st)
+            episode_heatmaps.append(h_map)  # create a list of heatmaps for each episode
             frame_time = time.time() - start_time
         print('episode {} appended, {} low quality point_cloud_files'.format(ep_counter, skipped_pc))
         ep_counter += 1
 
-    np.save(recordings_path + 'heatmap', episode_heatmaps)
-    np.save(recordings_path + 'states', sorted_states)
-    np.save(recordings_path + 'actions', sorted_acts)
+        recording_heatmaps.append(episode_heatmaps)  # create a list of episodes (each episode containts a list of heatmaps, resulting in a 4-dim array)
+        recording_states.append(states)
+        recording_actions.append(actions)
+
+    np.save(recordings_path + 'heatmap', recording_heatmaps)
+    np.save(recordings_path + 'states', recording_states)
+    np.save(recordings_path + 'actions', recording_actions)
 
 
 
@@ -229,27 +202,41 @@ if job == 'pos_aprox':
 
     heat_maps = np.load(expert_path+'heatmap.npy')
     
-    num_of_labels = 30
+    num_of_labels = 40
+
+    global labels
+
     inputs = []
-    labels = np.zeros([num_of_labels,2])
+    labels = []
 
     for k in range(num_of_labels):
 
-        index = np.random.randint(len(heat_maps))
-        h_map = heat_maps[index,:,:].reshape(100,7)
-        plt.figure(figsize=(10,10))
-        plt.imshow(h_map)
-        plt.show()
-        plt.close()
+        def onclick(event):
+            global labels
+            xd, yd = event.xdata, event.ydata
+            print(xd, yd)
+            labels.append([int(xd), int(yd)])
 
-        x_b = input('x_body Position: ')
-        y_b = input('y_body Position: ')
-        x_s = input('x_shovle Position: ')
-        y_s = input('y_shovle Position: ')
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        fig.canvas.mpl_connect('button_press_event', onclick)
+
+        index = np.random.randint(len(heat_maps))
+        h_map = heat_maps[index, :, :].reshape(100, 7)
+        # ax.figure(figsize=(10, 10))
+
+        ax.imshow(h_map)
+        plt.show()
 
         inputs.append(h_map)
-        labels[k,:] = np.array([int(x),(y)])
+        print(labels)
+
+    t_labels = []
+    # for k in range(0, len(labels), 2): # for 2 coordinates - body and shovle locations
+    #     t_labels.append([labels[k],labels[k+1]])
+    for k in range(0, len(labels), 1):
+        t_labels.append([labels[k]])  # for 1 coordinatge - body locatino
 
     np.save(expert_path+'pos_map', inputs)
-    np.save(expert_path+'pos_label', labels)
+    np.save(expert_path+'pos_label', t_labels)
 
