@@ -164,7 +164,7 @@ if job == 'heat_map_generator':
                 #         h_map[x_ind, y_ind] = z[point]
 
                 frame_time = time.time() - start_time
-                # print(frame_time)
+                print(frame_time)
 
                 if show_height_map:
                     plt.imshow(h_map, aspect=0.1)
