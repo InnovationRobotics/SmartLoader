@@ -1,23 +1,56 @@
 from keras.models import load_model
 from SmartLoaderIRL import SmartLoader
 import numpy as np
+from matplotlib import pyplot as plt
 
 if __name__ == '__main__':
 
     env = SmartLoader()
     jobs = ['BC', 'PD', 'dump']
-    job = jobs[2]
+    job = jobs[0]
     obs = env.reset(job)
 
-    if job == 'BC':
     # Behaviour Cloning TEST:
-        action = np.array([])
-        model = load_model('/home/sload/Downloads/SmartLoader-master/saved_models/Heatmap/lift_23_ep_005_loss')
-        for _ in range(10000):
+    if job == 'BC':
+
+    #     action = np.array([0.0,-0.5,0.0,0.0])
+        action = [0,-1,0,0]
+
+        # model = load_model('/home/sload/Downloads/SsmartLoader-master (1)/SmartLoader-master/saved_models/Heatmap/push_49_ep_012_loss')
+        # model = load_model('/home/sload/Downloads/talos_001_model_keras_v2')
+        # model = load_model('/home/sload/git/SmartLoader/saved_experts/pos_est_model')
+
+        # pos_model = load_model('/home/sload/Downloads/KERAS_pos_est_model_0.8_val_loss')
+        # conf_model = load_model('/home/sload/Downloads/KERAS_conf_model_1.7_loss')
+
+        # for _ in range(10000):
+        while True:
             obs = env.step(action)
             hmap = obs[0]
+
+            pos = pos_model.predict(hmap.reshape(1,1,100,16))[0]
+            plt.imshow(hmap, aspect=0.1)
+            # plt.scatter(pos[0],pos[1],s=100,c='red',marker='o')
+            plt.show(block=False)
+            plt.pause(0.01)
+
+            des_conf = conf_model.predict(hmap.reshape(1,1,100,16))[0]
+
+            k_p=3
+
+            # action[1] = k_p*(des_conf[1]-pos[1])
+            print('pos : ', pos[1], ' des: ',  des_conf[1])
+
+
+            # action[1]=des_conf
+            # print(des_conf[0:4])
             # action = [0, 0, 0, 0]
-            # action = model.predict(hmap.reshape(1,1,100,6))[0]
+            # action = []
+            # xy_location = model.predict(hmap.reshape(1,1,100,16))[0]
+            # print(xy_location)
+            # print(pos)
+            # action[0]=0
+            # action[0]=0
 
     # model = load_model()
 
@@ -33,7 +66,7 @@ if __name__ == '__main__':
             action = env.LLC.step(obs, i)
             obs = env.step(action)
 
-        env.LLC.save_plot(name='step response 2')
+        env.LLC.save_plot(name='step response')
 
     elif job == 'dump':
     # dump test

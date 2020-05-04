@@ -4,9 +4,9 @@ import time
 from keras.models import load_model
 
 show_cropped_point_cloud = False
-show_height_map = True
+show_height_map = False
 
-def HeatMap(p_cloud, scan_y_range=[-0.85,0.85], x_res = 100):
+def HeatMap(p_cloud, scan_y_range=[-0.5,0.20], x_res = 100):
     global a
     episode_heatmaps = []
     actions = []

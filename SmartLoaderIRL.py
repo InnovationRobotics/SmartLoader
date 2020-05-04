@@ -114,6 +114,11 @@ class SmartLoader:
         np_pc = ros_numpy.numpify(data)
         xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
         self.heat_map = HeatMap(xyz_array)[0]
+        self.heatmap_arr.append(self.heat_map)
+        if len(self.heatmap_arr) > 3:
+            # self.upd_heat_map = self.heatmap_arr[-1]
+            self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
+            self.heatmap_arr=[]
 
     def do_action(self, agent_action):
 
@@ -124,7 +129,7 @@ class SmartLoader:
         joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
 
         joymessage.buttons = 11*[0]
-        joymessage.buttons[7] = 1
+        joymessage.buttons[7] = 0 ## activation of hydraulic pump
 
         self.joypub.publish(joymessage)
         rospy.logdebug(joymessage)
@@ -134,11 +139,14 @@ class SmartLoader:
 
         joyactions = np.zeros(6)
 
+        # joyactions[2] = joyactions[5] = 1
+
         joyactions[0] = agent_action[0] # vehicle turn
         joyactions[3] = agent_action[2] # blade pitch
         joyactions[4] = agent_action[3] # arm up/down
 
         if agent_action[1] < 0: # drive backwards
+            # joyactions[2] = 2 * agent_action[1] + 1
             joyactions[2] = -2*agent_action[1] - 1
 
         elif agent_action[1] > 0: # drive forwards
@@ -154,6 +162,8 @@ class SmartLoader:
         self.arm_lift = []
         self.arm_pitch = []
         self.heat_map = []
+        self.heatmap_arr = []
+        self.upd_heat_map = []
 
         # For time step
         self.current_time = time.time()
@@ -189,27 +199,41 @@ class SmartLoader:
 
         # current state
         h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
-        arm_pitch = self.world_state['BladePitch'].item(0)
-        obs = [h_map, arm_lift, arm_pitch]
+        # arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_pitch = self.world_state['BladePitch'].item(0)
+        obs = [h_map] # , arm_lift, arm_pitch]
 
-        if job == 'PD':
-            # define and reset PD
-            self.LLC = LLC_pid.LLC()
-            self.LLC.lift_pid.SetPoint = arm_lift
-            self.LLC.pitch_pid.SetPoint = arm_pitch
-
-        if job == 'dump':
-            # define and reset PD
-            self.LLC = LLC_pid.LLC()
-            # set pid set point for blade dumping mode
-            self.LLC.lift_pid.SetPoint = 220.
-            self.LLC.pitch_pid.SetPoint = 250.
+        # if job == 'PD':
+        #     # define and reset PD
+        #     self.LLC = LLC_pid.LLC()
+        #     self.LLC.lift_pid.SetPoint = arm_lift
+        #     self.LLC.pitch_pid.SetPoint = arm_pitch
+        #
+        # if job == 'dump':
+        #     # define and reset PD
+        #     self.LLC = LLC_pid.LLC()
+        #     # set pid set point for blade dumping mode
+        #     self.LLC.lift_pid.SetPoint = 220.
+        #     self.LLC.pitch_pid.SetPoint = 250.
 
         return obs
 
 
     def step(self, action):
+
+        ###### heat map arr disp
+        #     rows, cols = 1, 10
+        #     fig, splot = plt.subplots(rows, cols)
+        #
+        #     for subp in range(cols):
+        #         # time.sleep(0.1)
+        #         avg_heatmap = np.mean(self.heatmap_arr[(subp*4):((subp+1)*4)], axis=0)
+        #         splot[subp].imshow(self.heatmap_arr[subp*4],aspect=0.3)
+        #     plt.show(block=False)
+        #     plt.pause(6)
+        #     # time.sleep(0.1)
+        #     plt.close()
+        #     self.heatmap_arr = []
 
         # for even time steps
         self.current_time = time.time()
@@ -224,14 +248,14 @@ class SmartLoader:
         self.last_time = self.current_time
 
         # current state
-        h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
-        arm_pitch = self.world_state['BladePitch'].item(0)
+        h_map = self.upd_heat_map
+        # arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_pitch = self.world_state['BladePitch'].item(0)
 
-        obs = [h_map, arm_lift, arm_pitch]
+        obs = [h_map] #, arm_lift, arm_pitch]
 
-        if action.size:
-            self.do_action(action)
+        # if action:
+        self.do_action(action)
 
         return obs
 #
