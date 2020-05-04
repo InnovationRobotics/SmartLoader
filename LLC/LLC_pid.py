@@ -19,33 +19,38 @@ class LLC:
 
         # Define PIDs
         # armHeight = lift = [down:145 - up:265]
-        self.lift_pid = PID(P=0.002, I=0.0001, D=0.00001, saturation=True)
-        # self.lift_pid.SetPoint = 200.
+        # P=0.002, I=0.0001, D=0.00001
+        self._kp_kd = 'lift P=0.1 I=0.0005 D=0.00001, pitch P=-0.02 I=-0.0001 D=0.00001'
+        self.lift_pid = PID(P=0.02, I=0.0005, D=0.00001, saturation=True)
+        # self.lift_pid.SetPoint = 250.
         self.lift_pid.setSampleTime(self.TIME_STEP)
 
         # armShortHeight = pitch = [up:70 - down:265]
-        self.pitch_pid = PID(P=-0.008, I=0, D=0.001, saturation=True)
-        # self.pitch_pid.SetPoint = 150.
+        # P=-0.008, I=0, D=0.001
+        self.pitch_pid = PID(P=-0.02, I=-0.0001, D=0.00001, saturation=True)
+        # self.pitch_pid.SetPoint = 200.
         self.pitch_pid.setSampleTime(self.TIME_STEP)
 
 
     def step(self, obs, i=None):
 
-        heat_map = obs[0]
+        # heat_map = obs[0]
         current_lift = obs[1]
         current_pitch = obs[2]
 
-        # if i:
-        #     if i % 100 == 0:
-        #         self.lift_pid.SetPoint += 20
-        #         self.pitch_pid.SetPoint += 20
+        if i:
+            if i % 20 == 0:
+                if self.lift_pid.SetPoint < 250:
+                    self.lift_pid.SetPoint += 5
+                if self.pitch_pid.SetPoint < 200:
+                    self.pitch_pid.SetPoint += 10
         print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
 
         # pid update
         lift_action = self.lift_pid.update(current_lift)
         pitch_action = self.pitch_pid.update(current_pitch)
 
-        # do action (both actions together, steer abd speed 0)
+        # do action (both actions together, steer and speed 0)
         pd_action = np.array([pitch_action, lift_action])
         action = np.concatenate(([0., 0.], pd_action))
 
@@ -64,9 +69,11 @@ class LLC:
         # init plot
         length = len(self.lift)
         x = np.linspace(0, length, length)
-        fig, (ax_lift, ax_pitch) = plt.subplots(2)
+        fig, ((ax_lift, ax_pitch), (ax_lift_ac, ax_pitch_ac)) = plt.subplots(2,2)
         ax_lift.set_title('lift')
         ax_pitch.set_title('pitch')
+        ax_lift_ac.set_title('lift action')
+        ax_pitch_ac.set_title('pitch action')
 
         # plot set points
         # for const set point
@@ -78,6 +85,9 @@ class LLC:
         # plot data
         ax_lift.plot(x, self.lift, color='red')
         ax_pitch.plot(x, self.pitch, color='red')
+        ax_lift_ac.plot(x, self.lift_action, color='blue')
+        ax_pitch_ac.plot(x, self.pitch_action, color='blue')
+
 
         # create plot folder if it does not exist
         # try:
@@ -85,7 +95,8 @@ class LLC:
         # except FileNotFoundError:
         #     os.makedirs(plot_folder)
         # fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
-        fig.savefig(name)
+        fig.savefig(fname=(name + self._kp_kd + '.png'))
+        # fig.savefig(name)
         print('figure saved!')
 
 
