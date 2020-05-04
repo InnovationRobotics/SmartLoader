@@ -2,20 +2,36 @@ import os
 import time
 import numpy as np
 from matplotlib import pyplot as plt
+import math
+
+
+def quatToEuler(quat):
+    x = quat[0]
+    y = quat[1]
+    z = quat[2]
+    w = quat[3]
+
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    X = math.atan2(t0, t1)
+
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    Y = math.asin(t2)
+
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    Z = math.atan2(t3, t4)
+
+    return X, Y, Z
 
 
 class LLC:
     def __init__(self):
         self._output_folder = os.getcwd()
 
-        self.lift = []
-        self.pitch = []
-        self.lift_action = []
-        self.pitch_action = []
-        self.lift_setPoint = []
-        self.pitch_setPoint = []
-
-        self.TIME_STEP = 0.05 # match env time step
+        self.TIME_STEP = 0.001  # 10 mili
 
         # Define PIDs
         # armHeight = lift = [down:145 - up:265]
@@ -28,66 +44,58 @@ class LLC:
         # self.pitch_pid.SetPoint = 150.
         self.pitch_pid.setSampleTime(self.TIME_STEP)
 
+        # steer PID
+        self.steer_pid = PID(P=0.001, I=0, D=0.0001, saturation=True)
+        self.steer_pid.setSampleTime(self.TIME_STEP)
 
-    def step(self, obs, i=None):
+        # speed PID
+        self.speed_pid = PID(P=0.001, I=0, D=0.0001, saturation=True)
+        self.speed_pid.setSampleTime(self.TIME_STEP)
 
-        heat_map = obs[0]
-        current_lift = obs[1]
-        current_pitch = obs[2]
 
-        # if i:
-        #     if i % 100 == 0:
-        #         self.lift_pid.SetPoint += 20
-        #         self.pitch_pid.SetPoint += 20
-        print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
+    def step(self, obs, des, i=None):
+
+        # des = np.array([y, x, lift, pitch, quat_body, quat_shovel])
+        self.speed_pid.SetPoint = np.linalg.norm([des[1], des[0]])
+
+        self.lift_pid.SetPoint = des[2] # desired lift
+        self.pitch_pid.SetPoint = des[3] # desired pitch
+
+        theta_body_des = quatToEuler(des[4:8])
+        theta_shovel_des = quatToEuler(des[8:])
+        self.steer_pid.SetPoint = np.linalg.norm(theta_body_des - theta_shovel_des)
+
+        # obs = np.array([x, y, theta1, theta2, lift, pitch])
+        current_speed = np.linalg.norm([obs[0], obs[1]])
+        theta_body_curr = quatToEuler(obs[2:6])
+        theta_shovel_curr = quatToEuler(obs[6:10])
+        current_steer = np.linalg.norm(theta_body_curr - theta_shovel_curr)
+        current_lift = obs[10]
+        current_pitch = obs[11]
+
+        # print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
 
         # pid update
         lift_action = self.lift_pid.update(current_lift)
         pitch_action = self.pitch_pid.update(current_pitch)
+        steer_action = self.steer_pid.update(current_steer)
+        speed_action = self.speed_pid.update(current_speed)
 
-        # do action (both actions together, steer abd speed 0)
-        pd_action = np.array([pitch_action, lift_action])
-        action = np.concatenate(([0., 0.], pd_action))
+        # do action
+        # only blade - steer and speed 0
+        # pd_action = np.array([pitch_action, lift_action])
+        # action = np.concatenate(([0., 0.], pd_action))
+
+        # all actions
+        action = np.array([steer_action, speed_action, pitch_action, lift_action])
 
         # save data
-        self.lift.append(current_lift)
-        self.pitch.append(current_pitch)
-        self.lift_action.append(lift_action)
-        self.pitch_action.append(pitch_action)
-        self.lift_setPoint.append(self.lift_pid.SetPoint)
-        self.pitch_setPoint.append(self.pitch_pid.SetPoint)
+        self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
+        self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+        self.steer_pid.save_data(current_steer, steer_action, self.steer_pid.SetPoint)
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
 
         return action
-
-
-    def save_plot(self, name):
-        # init plot
-        length = len(self.lift)
-        x = np.linspace(0, length, length)
-        fig, (ax_lift, ax_pitch) = plt.subplots(2)
-        ax_lift.set_title('lift')
-        ax_pitch.set_title('pitch')
-
-        # plot set points
-        # for const set point
-        # ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
-        # ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
-        ax_lift.plot(x, self.lift_setPoint, color='blue')
-        ax_pitch.plot(x, self.pitch_setPoint, color='blue')
-
-        # plot data
-        ax_lift.plot(x, self.lift, color='red')
-        ax_pitch.plot(x, self.pitch, color='red')
-
-        # create plot folder if it does not exist
-        # try:
-        #     plot_folder = "{}/plots".format(self._output_folder)
-        # except FileNotFoundError:
-        #     os.makedirs(plot_folder)
-        # fig.savefig('{}/{}.png'.format(plot_folder, self._kp_kd))
-        fig.savefig(name)
-        print('figure saved!')
-
 
 
 class PID:
@@ -102,6 +110,10 @@ class PID:
         self.sample_time = 0.00
         self.current_time = current_time if current_time is not None else time.time()
         self.last_time = self.current_time
+
+        self._state = []
+        self._action = []
+        self._setPoint = []
 
         self.clear()
 
@@ -156,8 +168,36 @@ class PID:
 
             return output
 
+
     def setSampleTime(self, sample_time):
         """PID that should be updated at a regular interval.
         Based on a pre-determined sample time, the PID decides if it should compute or return immediately.
         """
         self.sample_time = sample_time
+
+    def save_data(self, state, action, setPoint):
+        self._state.append(state)
+        self._action.append(action)
+        self._setPoint.append(setPoint)
+
+    def save_plot(self, fileName, stateName):
+        # init plot
+        length = len(self._state)
+        x = np.linspace(0, length, length)
+        fig, (ax_state, ax_action) = plt.subplots(2)
+        ax_state.set_title(stateName)
+        ax_action.set_title(stateName + ' action')
+
+        # plot set points
+        # for const set point
+        # ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
+        # ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
+        # plot set points
+        ax_state.plot(x, self._setPoint, color='red')
+        # plot data
+        ax_state.plot(x, self._state, color='blue')
+        ax_action.plot(x, self._action, color='blue')
+
+        # save
+        fig.savefig(os.getcwd() + '/plots/' + fileName)
+        print('figure saved!')
