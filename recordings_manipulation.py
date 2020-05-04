@@ -30,7 +30,7 @@ if job == 'heat_map_generator':
 
     recordings_path = '/home/graphics/push_28_04_all/'
 
-    stripe_limits = [-0.6, 0.0]
+    stripe_limits = [-0.8, 0.8]
 
     show_point_cloud = False
     show_height_map = False
@@ -83,7 +83,7 @@ if job == 'heat_map_generator':
                 body_orien = []
                 for cord in body_orien_str:
                     try:
-                        body_orien.append(float(re.sub("[^\d\.\-]", "", cord)))
+                        body_orien.append(float(re.sub("[^\d\.\-\'e']", "", cord)))
                     except:
                         continue
 
@@ -94,7 +94,7 @@ if job == 'heat_map_generator':
                 blade_orien = []
                 for cord in blade_orien_str:
                     try:
-                        blade_orien.append(float(re.sub("[^\d\.\-]", "", cord)))
+                        blade_orien.append(float(re.sub("[^\d\.\-\'e']", "", cord)))
                     except:
                         continue
 
@@ -164,7 +164,7 @@ if job == 'heat_map_generator':
                 #         h_map[x_ind, y_ind] = z[point]
 
                 frame_time = time.time() - start_time
-                print(frame_time)
+                # print(frame_time)
 
                 if show_height_map:
                     plt.imshow(h_map, aspect=0.1)
@@ -182,7 +182,7 @@ if job == 'heat_map_generator':
             skipped_data = 0
             ep_counter += 1
 
-    np.save(recordings_path + 'heatmap', heatmaps)
+    np.save(recordings_path + 'heatmaps', heatmaps)
     np.save(recordings_path + 'states', states)
     np.save(recordings_path + 'starts', starts)
     np.save(recordings_path + 'actions', actions)
@@ -214,78 +214,61 @@ if job == 'concat_recodrings':
 
 if job == 'pos_aprox':
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/'
 
     heat_maps = np.load(expert_path + 'heatmap.npy')
 
-    num_of_labels = 40
+    num_of_labels = 50
 
-    global labels
+    global pos
 
     inputs = []
     labels = []
+    pos = []
 
     for k in range(num_of_labels):
         def onclick(event):
-            global labels
+            global pos
             xd, yd = event.xdata, event.ydata
             print(xd, yd)
-            labels.append([int(xd), int(yd)])
+            pos.append([int(xd), int(yd)])
 
 
         fig, ax = plt.subplots(figsize=(10, 10))
         fig.canvas.mpl_connect('button_press_event', onclick)
 
         index = np.random.randint(len(heat_maps))
-        h_map = heat_maps[index, :, :].reshape(100, 7)
+        h_map = heat_maps[index, :, :].reshape(100, 16)
         # ax.figure(figsize=(10, 10))
 
         ax.imshow(h_map)
         plt.show()
 
         inputs.append(h_map)
-        print(labels)
+        print(pos)
 
-    t_labels = []
-    # for k in range(0, len(labels), 2): # for 2 coordinates - body and shovle locations
-    #     t_labels.append([labels[k],labels[k+1]])
-    for k in range(0, len(labels), 1):
-        t_labels.append([labels[k]])  # for 1 coordinatge - body location
 
-    np.save(expert_path + 'pos_map', inputs)
-    np.save(expert_path + 'pos_label', t_labels)
+        # for k in range(0, len(labels), 2): # for 2 coordinates - body and shovle locations
+        #     t_labels.append([labels[k],labels[k+1]])
+
+        labels.append(pos[k])  # for 1 coordinatge - body location
+
+    np.save(expert_path + 'pos_approx_map', inputs)
+    np.save(expert_path + 'pos_approx_label', labels)
 
 if job == 'pos_deductor':
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/'
     heat_maps = np.load(expert_path + 'heatmap.npy')
-    states = np.load(expert_path + 'states.npy')
+    states = np.load(expert_path + 'states.npy', allow_pickle=True)
+    starts = np.load(expert_path + 'starts.npy')
+    model = load_model(expert_path+'KERAS_pos_est_model_08_val_loss')
 
-    for step in range(len(states)):
+    positions = []
+    for step, h_map in enumerate(heat_maps):
+        positions.append(model.predict(h_map.reshape(1, 1, 100, 16)))
 
-        # if len(states[step][2]) or
-
-        body_orien_str = states[0][3][18:107].split()
-        body_orien = []
-        for state in body_orien_str:
-            try:
-                body_orien.append(float(re.sub("[^\d\.]", "", state)))
-            except:
-                continue
-
-        blade_orien_str = states[0][2][18:110].split()
-        blade_orien = []
-        for state in blade_orien_str:
-            try:
-                blade_orien.append(float(re.sub("[^\d\.]", "", state)))
-            except:
-                continue
-
-    model = load_model('')
-
-    for step in len(heat_maps):
-        position = model.predict(heat_maps[step])
-
+    np.save(expert_path + 'positions', positions)
 
 
 
