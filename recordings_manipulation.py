@@ -1,15 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import ion
-
+from keras.models import Model, load_model
+import re
 from os import walk
 import csv
 import time
 
 
-
 def joy_to_agent(joy_actions):
-
     agent_action = np.zeros(4)
 
     agent_action[0] = joy_actions[0]  # vehicle turn
@@ -24,152 +23,169 @@ def joy_to_agent(joy_actions):
     return agent_action
 
 
-jobs = ['heat_map_generator', 'concat_recodrings', 'pos_aprox']
+jobs = ['heat_map_generator', 'concat_recodrings', 'pos_aprox', 'pos_deductor']
 job = jobs[0]
 
 if job == 'heat_map_generator':
 
     recordings_path = '/home/graphics/push_28_04_all/'
-    show_point_cloud = False
-    show_height_map = True
 
-    recording_heatmaps = []
-    recording_states = []
-    recording_actions = []
+    stripe_limits = [-0.6, 0.0]
+
+    show_point_cloud = False
+    show_height_map = False
+
+    actions = []
+    states = []
+    heatmaps = []
+    starts = []
 
     ep_counter = 1
+    skipped_data = 0
 
-    stripe_limits = [-0.8, 0.8]
-
-    stripe_range = np.arange(stripe_limits[0], stripe_limits[1]+0.1, 0.1)
+    stripe_range = np.arange(stripe_limits[0], stripe_limits[1] + 0.1, 0.1)
     num_of_stripes = len(stripe_range) - 1
     x_res = 100
 
     for (dirpath, dirnames, _) in walk(recordings_path):  # crate a list of episodes
         break
-    for ep_dir in dirnames:   ## iterate over each
-        for (_, _, filenames) in walk(dirpath+ep_dir):  # create a list of pointcloud steps for each episode
+    for ep_dir in dirnames:  ## iterate over each
+        for (_, _, filenames) in walk(dirpath + ep_dir):  # create a list of pointcloud steps for each episode
             break
 
-        actions = []
-        states = []
+        # first remove bag file from list and go over csv:
+        csv_index = [n for n, x in enumerate(filenames) if 'csv' in x][0]
+        bag_index = [n for n, x in enumerate(filenames) if 'bag' in x][0]
 
-        sorter = []
-        popper = []
-        for file_num, file_name in enumerate(filenames):
-            if 'bag' in file_name:
-                popper.append(file_num)
-                continue
-            if 'csv' in file_name:  # read csv and create state-action trajectories
-                with open(dirpath+ep_dir+'/'+file_name) as csvfile:
-                    reader = csv.reader(csvfile)
-                    next(reader)
-                    for row in reader:
-                        act = row[2]
-                        act = act.replace('(', '')
-                        act = act.replace(')', '')
-                        act = act.split(',')
-                        act = [float(i) for i in act]
-                        actions.append(joy_to_agent(act))
-                        states.append(row[5:9])
-                popper.append(file_num)
-                continue
+        csv_file = filenames[csv_index]
 
-            indexer = []
-            for str_val in filenames[file_num][26:-1]:  # sort pointcloud files
-                if not str_val.isdigit():
-                    sorter.append(int("".join(indexer)))
-                    break
-                else:
-                    indexer.append(str_val)
-
-        for index in sorted(popper, reverse=True):
+        for index in sorted([csv_index, bag_index], reverse=True):
             del filenames[index]
 
-        sorted_files = list.copy(filenames)
+        with open(dirpath + ep_dir + '/' + csv_file) as csvfile:
+            reader = csv.reader(csvfile)
+            next(reader)
+            starts.append(True)
 
-        for jj in range(len(sorter)):  # create a new sorted list of pointcloud files
-            # print('insert: ', filenames[jj], 'into place: ', sorter[jj]-1)
-            sorted_files[sorter[jj]-1] = filenames[jj]
+            for row in reader:
 
-        skipped_pc = 0
-        episode_heatmaps = []
+                # read actions
+                act = row[2]
+                act = act.replace('(', '').replace(')', '')
+                act = act.split(',')
+                act = [float(i) for i in act]
 
-        for file in sorted_files:
-
-            start_time = time.time()
-
-            point_cloud = np.load(dirpath+ep_dir+'/'+file)['arr_0']
-            if len(point_cloud) < 10000:
-                skipped_pc += 1
-                continue
-
-            z = -point_cloud[:, 0]
-            x = point_cloud[:, 1]
-            y = -point_cloud[:, 2]
-
-            ind = np.where((x < -1.4) | (x > 1.5) | (z > -2.2))
-
-            x = np.delete(x, ind)
-            y = np.delete(y, ind)
-            z = np.delete(z, ind)
-
-            z = (z - np.min(z))/np.ptp(z)   ## normalize height [0,1]
-
-            if show_point_cloud:
-                fig = plt.figure()
-                ax = fig.add_subplot(111, projection='3d')
-
-                ax.scatter(x, y, z, s=0.1)
-
-                ax.set_xlabel('X Label')
-                ax.set_ylabel('Y Label')
-                ax.set_zlabel('Z Label')
-                plt.show()
-
-            pc_len = len(x)
-
-            h_map = np.zeros([x_res, num_of_stripes])
-
-            x_A_coeff = (x_res - 1) / 3
-            x_B_coeff = (x_res - 1) / 2
-
-            # y_A_coeff = 9.375
-            # y_B_coeff = 7.5
-            #
-            # # y_A_coeff = (num_of_stripes - 1) / (num_of_stripes*0.1)
-            # # y_B_coeff = (num_of_stripes - 1) / 2
-            #
-            y_A_coeff = (num_of_stripes-1)/(stripe_limits[1]-stripe_limits[0])
-            y_B_coeff = -stripe_limits[0]*y_A_coeff
-
-            for point in range(pc_len):
-                if (y[point] < stripe_limits[0]) | (y[point] > stripe_limits[1]+0.1):
+                # read states (i.e. arm heigh and pitch and body and shovle orientation)
+                body_orien_str = row[8][0:107].split()
+                if len(body_orien_str) == 0:  # if no imu data, skip line
+                    skipped_data += 1
                     continue
-                x_ind = int(x[point] * x_A_coeff + x_B_coeff)
-                y_ind = int(y[point] * y_A_coeff + y_B_coeff)
-                if z[point] > h_map[x_ind, y_ind]:
-                    h_map[x_ind, y_ind] = z[point]
+                body_orien = []
+                for cord in body_orien_str:
+                    try:
+                        body_orien.append(float(re.sub("[^\d\.\-]", "", cord)))
+                    except:
+                        continue
 
-            if show_height_map:
-                plt.imshow(h_map, aspect=0.1)
-                plt.show(block=False)
-                plt.pause(0.001)
+                blade_orien_str = row[7][0:110].split()
+                if len(blade_orien_str) == 0:  # if no imu data, skip line
+                    skipped_data += 1
+                    continue
+                blade_orien = []
+                for cord in blade_orien_str:
+                    try:
+                        blade_orien.append(float(re.sub("[^\d\.\-]", "", cord)))
+                    except:
+                        continue
 
-            episode_heatmaps.append(h_map)  # create a list of heatmaps for each episode
-            frame_time = time.time() - start_time
-        print('episode {} appended, {} low quality point_cloud_files'.format(ep_counter, skipped_pc))
-        ep_counter += 1
+                state = [int(row[5]), int(row[6]), body_orien, blade_orien]
 
-        recording_heatmaps.append(episode_heatmaps)  # create a list of episodes (each episode containts a list of heatmaps, resulting in a 4-dim array)
-        recording_states.append(states)
-        recording_actions.append(actions)
+                # read heatmap
+                h_map_file = row[10] + '.npz'
 
-    np.save(recordings_path + 'heatmap', recording_heatmaps)
-    np.save(recordings_path + 'states', recording_states)
-    np.save(recordings_path + 'actions', recording_actions)
+                point_cloud = np.load(dirpath + ep_dir + '/' + h_map_file)['arr_0']
+                if len(point_cloud) < 10000:
+                    skipped_data += 1
+                    continue
 
+                start_time = time.time()
 
+                z = -point_cloud[:, 0]
+                x = point_cloud[:, 1]
+                y = -point_cloud[:, 2]
+
+                ind = np.where((x < -1.4) | (x > 1.5) | (z > -2.2))
+
+                x = np.delete(x, ind)
+                y = np.delete(y, ind)
+                z = np.delete(z, ind)
+
+                z = (z - np.min(z)) / np.ptp(z)  ## normalize height [0,1]
+
+                if show_point_cloud:
+                    fig = plt.figure()
+                    ax = fig.add_subplot(111, projection='3d')
+
+                    ax.scatter(x, y, z, s=0.1)
+
+                    ax.set_xlabel('X Label')
+                    ax.set_ylabel('Y Label')
+                    ax.set_zlabel('Z Label')
+                    plt.show()
+
+                h_map = np.zeros([x_res, num_of_stripes])
+
+                x_A_coeff = (x_res - 1) / 3
+                x_B_coeff = (x_res - 1) / 2
+
+                y_A_coeff = (num_of_stripes - 1) / (stripe_limits[1] - stripe_limits[0])
+                y_B_coeff = -stripe_limits[0] * y_A_coeff
+
+                x_ind = np.array([x * x_A_coeff + x_B_coeff]).astype(int)
+                y_ind = np.array([y * y_A_coeff + y_B_coeff]).astype(int)
+
+                for y_step in range(num_of_stripes):
+
+                    for x_step in range(x_res):
+
+                        z_ind = np.argwhere(np.logical_and(y_step == y_ind, x_step == x_ind)[0])
+                        if len(z_ind) == 0:
+                            continue
+                        h_map[x_step, y_step] = np.max(z[z_ind])
+
+                # pc_len = len(x)
+                #
+                # for point in range(pc_len):
+                #     if (y[point] < stripe_limits[0]) | (y[point] > stripe_limits[1]+0.1):
+                #         continue
+                #     x_ind = int(x[point] * x_A_coeff + x_B_coeff)
+                #     y_ind = int(y[point] * y_A_coeff + y_B_coeff)
+                #     if z[point] > h_map[x_ind, y_ind]:
+                #         h_map[x_ind, y_ind] = z[point]
+
+                frame_time = time.time() - start_time
+                print(frame_time)
+
+                if show_height_map:
+                    plt.imshow(h_map, aspect=0.1)
+                    plt.show(block=False)
+                    plt.pause(0.001)
+
+                heatmaps.append(h_map)  # create a list of heatmaps for each episode
+                starts.append(False)
+                actions.append(joy_to_agent(act))
+                states.append(state)
+
+            starts.pop(-1)
+            print('episode {} appended, {} skipped frames due to missing data or low quality pointclouds'.format(
+                ep_counter, skipped_data))
+            skipped_data = 0
+            ep_counter += 1
+
+    np.save(recordings_path + 'heatmap', heatmaps)
+    np.save(recordings_path + 'states', states)
+    np.save(recordings_path + 'starts', starts)
+    np.save(recordings_path + 'actions', actions)
 
 if job == 'concat_recodrings':
     act1 = np.load('/home/graphics/git/SmartLoader/saved_experts/saved_ep/ob.npy')
@@ -186,9 +202,9 @@ if job == 'concat_recodrings':
 
     act = np.concatenate((act1, act2))
     obs = np.concatenate((obs1, obs2))
-    rew = np.concatenate((rew1,rew2))
-    ep_ret = np.concatenate((ep_ret1,ep_ret2))
-    ep_str = np.concatenate((ep_str1,ep_str2))
+    rew = np.concatenate((rew1, rew2))
+    ep_ret = np.concatenate((ep_ret1, ep_ret2))
+    ep_str = np.concatenate((ep_str1, ep_str2))
 
     np.save('/home/graphics/git/SmartLoader/saved_experts/Push/1_rock/100_ep_full/act', act)
     np.save('/home/graphics/git/SmartLoader/saved_experts/Push/1_rock/100_ep_full/obs', obs)
@@ -200,8 +216,8 @@ if job == 'pos_aprox':
 
     expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
 
-    heat_maps = np.load(expert_path+'heatmap.npy')
-    
+    heat_maps = np.load(expert_path + 'heatmap.npy')
+
     num_of_labels = 40
 
     global labels
@@ -210,7 +226,6 @@ if job == 'pos_aprox':
     labels = []
 
     for k in range(num_of_labels):
-
         def onclick(event):
             global labels
             xd, yd = event.xdata, event.ydata
@@ -235,8 +250,44 @@ if job == 'pos_aprox':
     # for k in range(0, len(labels), 2): # for 2 coordinates - body and shovle locations
     #     t_labels.append([labels[k],labels[k+1]])
     for k in range(0, len(labels), 1):
-        t_labels.append([labels[k]])  # for 1 coordinatge - body locatino
+        t_labels.append([labels[k]])  # for 1 coordinatge - body location
 
-    np.save(expert_path+'pos_map', inputs)
-    np.save(expert_path+'pos_label', t_labels)
+    np.save(expert_path + 'pos_map', inputs)
+    np.save(expert_path + 'pos_label', t_labels)
+
+if job == 'pos_deductor':
+
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
+    heat_maps = np.load(expert_path + 'heatmap.npy')
+    states = np.load(expert_path + 'states.npy')
+
+    for step in range(len(states)):
+
+        # if len(states[step][2]) or
+
+        body_orien_str = states[0][3][18:107].split()
+        body_orien = []
+        for state in body_orien_str:
+            try:
+                body_orien.append(float(re.sub("[^\d\.]", "", state)))
+            except:
+                continue
+
+        blade_orien_str = states[0][2][18:110].split()
+        blade_orien = []
+        for state in blade_orien_str:
+            try:
+                blade_orien.append(float(re.sub("[^\d\.]", "", state)))
+            except:
+                continue
+
+    model = load_model('')
+
+    for step in len(heat_maps):
+        position = model.predict(heat_maps[step])
+
+
+
+
+
 
