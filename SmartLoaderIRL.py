@@ -129,7 +129,7 @@ class SmartLoader:
         joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
 
         joymessage.buttons = 11*[0]
-        joymessage.buttons[7] = 1
+        joymessage.buttons[7] = 0 ## activation of hydraulic pump
 
         self.joypub.publish(joymessage)
         rospy.logdebug(joymessage)
@@ -139,11 +139,14 @@ class SmartLoader:
 
         joyactions = np.zeros(6)
 
+        # joyactions[2] = joyactions[5] = 1
+
         joyactions[0] = agent_action[0] # vehicle turn
         joyactions[3] = agent_action[2] # blade pitch
         joyactions[4] = agent_action[3] # arm up/down
 
         if agent_action[1] < 0: # drive backwards
+            # joyactions[2] = 2 * agent_action[1] + 1
             joyactions[2] = -2*agent_action[1] - 1
 
         elif agent_action[1] > 0: # drive forwards
@@ -251,8 +254,8 @@ class SmartLoader:
 
         obs = [h_map] #, arm_lift, arm_pitch]
 
-        if action.size:
-            self.do_action(action)
+        # if action:
+        self.do_action(action)
 
         return obs
 #
