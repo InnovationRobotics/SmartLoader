@@ -1,13 +1,13 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import time
+from keras.models import load_model
 
 show_cropped_point_cloud = False
-show_selected_stripes = False
 show_height_map = True
 
-def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
-
+def HeatMap(p_cloud, scan_y_range=[-0.85,0.85], x_res = 100):
+    global a
     episode_heatmaps = []
     actions = []
     states = []
@@ -16,7 +16,6 @@ def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
     # --- define the number of scan stripes according to scan_y_range:
     stripe_range = np.arange(scan_y_range[0], scan_y_range[1], 0.1)
     num_of_stripes = len(stripe_range) - 1
-    x_resolution = x_res
 
     start_time = time.time()
 
@@ -31,7 +30,7 @@ def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
     y = -point_cloud[:, 2]
 
     # --- cut frame according to arena size
-    ind = np.where((x < -1.4) | (x > 1.5) | (z > -2))
+    ind = np.where((x < -1.5) | (x > 1.5) | (z > -2) | (y > 0.8) | (y < -0.8))
     x = np.delete(x, ind)
     y = np.delete(y, ind)
     z = np.delete(z, ind)
@@ -50,56 +49,26 @@ def HeatMap(p_cloud, scan_y_range=[-0.4,0.3], x_res = 100):
         ax.set_zlabel('Z Label')
         plt.show()
 
-    # ---seperate point_cloud to stripe arrays
-    st_ind = []  # ---seperate to stripes
-    for stripe in range(num_of_stripes):
-        st_ind.append(np.where(np.logical_and(y > stripe_range[stripe], y < stripe_range[stripe + 1])))
+    pc_len = len(x)
 
-    shortest = np.inf
-    for stripe in range(num_of_stripes):
-        stripe_len = len(st_ind[stripe][0])
-        if stripe_len < shortest:
-            shortest = stripe_len
+    h_map = np.zeros([x_res,num_of_stripes])
 
-    # ---populate an array of xyz coordinates for each stripe
-    st = np.zeros([num_of_stripes, 3, shortest])
-    for i in range(num_of_stripes):
-        st[i, 0, :] = x[st_ind[i][0][0:shortest]]
-        st[i, 1, :] = y[st_ind[i][0][0:shortest]]
-        st[i, 2, :] = z[st_ind[i][0][0:shortest]]
+    x_A_coeff = (x_res-1)/3
+    x_B_coeff = (x_res-1)/2
 
-    # ---sort stripes according to x values
-    for j in range(num_of_stripes):
-        st_test_ind = np.argsort(st[j, 0])
-        st[j][0][:] = st[j][0][st_test_ind]
-        st[j][1][:] = st[j][1][st_test_ind]
-        st[j][2][:] = st[j][2][st_test_ind]
+    y_A_coeff = (num_of_stripes-1)/1.6
+    y_B_coeff = (num_of_stripes-1)/2
 
-    if show_selected_stripes:
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-
-        ax.scatter(st[0:num_of_stripes, 0, :], st[0:num_of_stripes, 1, :], st[0:num_of_stripes, 2, :], s=0.1)
-
-        ax.set_xlabel('X Label')
-        ax.set_ylabel('Y Label')
-        ax.set_zlabel('Z Label')
-        plt.show()
-
-    # ----create the heatmap:
-    h_map = np.zeros([x_resolution, num_of_stripes])
-    jump = int(shortest / x_resolution)
-    for jj in range(num_of_stripes):  ## iterate over each stripe
-        for k in range(x_resolution):  ## crate a 100*3 heatmap
-            max_val = np.max(st[jj, 2, k * jump:((k + 1) * jump)])
-            h_map[k, jj] = max_val
+    for point in range(pc_len):
+        x_ind = int(np.round(x[point]*x_A_coeff+x_B_coeff))
+        y_ind = int(np.round(y[point]*y_A_coeff+y_B_coeff))
+        if z[point] > h_map[x_ind,y_ind]:
+            h_map[x_ind,y_ind] = z[point]
 
     if show_height_map:
         plt.imshow(h_map)
         plt.show(block=False)
-        plt.pause(0.01)
-        # # plt.close()
-
+        plt.pause(0.001)
 
     frame_time = time.time() - start_time
 
