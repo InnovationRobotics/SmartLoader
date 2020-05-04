@@ -189,32 +189,17 @@ class SmartLoader:
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
-        time.sleep(1)
 
-
-    def reset(self, job):
+    def reset(self):
 
         # wait for topics to update
-        time.sleep(3)
+        time.sleep(1)
 
         # current state
         h_map = self.heat_map
-        # arm_lift = self.world_state['ArmHeight'].item(0)
-        # arm_pitch = self.world_state['BladePitch'].item(0)
-        obs = [h_map] # , arm_lift, arm_pitch]
-
-        # if job == 'PD':
-        #     # define and reset PD
-        #     self.LLC = LLC_pid.LLC()
-        #     self.LLC.lift_pid.SetPoint = arm_lift
-        #     self.LLC.pitch_pid.SetPoint = arm_pitch
-        #
-        # if job == 'dump':
-        #     # define and reset PD
-        #     self.LLC = LLC_pid.LLC()
-        #     # set pid set point for blade dumping mode
-        #     self.LLC.lift_pid.SetPoint = 220.
-        #     self.LLC.pitch_pid.SetPoint = 250.
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
+        obs = [h_map, arm_lift, arm_pitch]
 
         return obs
 
@@ -249,10 +234,10 @@ class SmartLoader:
 
         # current state
         h_map = self.upd_heat_map
-        # arm_lift = self.world_state['ArmHeight'].item(0)
-        # arm_pitch = self.world_state['BladePitch'].item(0)
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
 
-        obs = [h_map] #, arm_lift, arm_pitch]
+        obs = [h_map, arm_lift, arm_pitch]
 
         # if action:
         self.do_action(action)
