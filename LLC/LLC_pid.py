@@ -24,60 +24,59 @@ def quatToEuler(quat):
     t4 = +1.0 - 2.0 * (y * y + z * z)
     Z = math.atan2(t3, t4)
 
-    return X, Y, Z
+    return np.array([X, Y, Z])
 
 
 class LLC:
     def __init__(self):
         self._output_folder = os.getcwd()
 
-        self.TIME_STEP = 0.001  # 10 mili
+        self.TIME_STEP = 10e-6  # 10 mili
 
         # Define PIDs
-        # armHeight = lift = [down:145 - up:265]
-        self.lift_pid = PID(P=0.002, I=0.0001, D=0.00001, saturation=True)
-        # self.lift_pid.SetPoint = 200.
-        self.lift_pid.setSampleTime(self.TIME_STEP)
-
-        # armShortHeight = pitch = [up:70 - down:265]
-        self.pitch_pid = PID(P=-0.008, I=0, D=0.001, saturation=True)
-        # self.pitch_pid.SetPoint = 150.
-        self.pitch_pid.setSampleTime(self.TIME_STEP)
+        # # armHeight = lift = [down:145 - up:265]
+        # self.lift_pid = PID(P=0.002, I=0.0001, D=0.00001, saturation=1)
+        # # self.lift_pid.SetPoint = 200.
+        # self.lift_pid.setSampleTime(self.TIME_STEP)
+        #
+        # # armShortHeight = pitch = [up:70 - down:265]
+        # self.pitch_pid = PID(P=-0.008, I=0, D=0.001, saturation=1)
+        # # self.pitch_pid.SetPoint = 150.
+        # self.pitch_pid.setSampleTime(self.TIME_STEP)
 
         # steer PID
-        self.steer_pid = PID(P=0.001, I=0, D=0.0001, saturation=True)
+        self.steer_pid = PID(P=0.00008, I=0, D=-0.000001, saturation=0.01)
         self.steer_pid.setSampleTime(self.TIME_STEP)
 
         # speed PID
-        self.speed_pid = PID(P=0.001, I=0, D=0.0001, saturation=True)
+        self.speed_pid = PID(P=1.5, I=0.1, D=0.5, saturation=1)
         self.speed_pid.setSampleTime(self.TIME_STEP)
 
 
-    def step(self, obs, des, i=None):
+    def step(self, obs, des):
 
-        # des = np.array([y, x, lift, pitch, quat_body, quat_shovel])
-        self.speed_pid.SetPoint = np.linalg.norm([des[1], des[0]])
+        # obs = {h_map, x_blade, y_blade, blade_orien, lift, pitch, x_vehicle, y_vehicle, vehicle_orien}
+        # current_lift = obs[1]
+        # current_pitch = obs[2]
 
-        self.lift_pid.SetPoint = des[2] # desired lift
-        self.pitch_pid.SetPoint = des[3] # desired pitch
+        # des = [x_blade, y_blade, lift, pitch]
+        # self.lift_pid.SetPoint = des[2]  # desired lift
+        # self.pitch_pid.SetPoint = des[3]  # desired pitch
 
-        theta_body_des = quatToEuler(des[4:8])
-        theta_shovel_des = quatToEuler(des[8:])
-        self.steer_pid.SetPoint = np.linalg.norm(theta_body_des - theta_shovel_des)
+        # speed error: x_des - x_current
+        x_des, y_des = des[0], des[1]
+        current_speed = obs['x_blade']
+        self.speed_pid.SetPoint = x_des
 
-        # obs = np.array([x, y, theta1, theta2, lift, pitch])
-        current_speed = np.linalg.norm([obs[0], obs[1]])
-        theta_body_curr = quatToEuler(obs[2:6])
-        theta_shovel_curr = quatToEuler(obs[6:10])
-        current_steer = np.linalg.norm(theta_body_curr - theta_shovel_curr)
-        current_lift = obs[10]
-        current_pitch = obs[11]
+        # steer error: angle between desired and current location - current blade orientation
+        self.steer_pid.SetPoint = np.math.degrees(np.math.atan2(y_des-obs['y_blade'], x_des-obs['x_blade']))
+        current_steer = np.math.degrees(np.math.atan2(obs['y_blade']-obs['y_vehicle'], obs['x_blade']-obs['x_vehicle']))
 
-        # print('{}.'.format(str(i)), 'height = ', current_lift, 'pitch = ', current_pitch)
+        # print('current steer = ', current_steer, 'desired steer = ', self.steer_pid.SetPoint)
 
         # pid update
-        lift_action = self.lift_pid.update(current_lift)
-        pitch_action = self.pitch_pid.update(current_pitch)
+        # lift_action = self.lift_pid.update(current_lift)
+        # pitch_action = self.pitch_pid.update(current_pitch)
         steer_action = self.steer_pid.update(current_steer)
         speed_action = self.speed_pid.update(current_speed)
 
@@ -87,11 +86,15 @@ class LLC:
         # action = np.concatenate(([0., 0.], pd_action))
 
         # all actions
-        action = np.array([steer_action, speed_action, pitch_action, lift_action])
+        # action = np.array([steer_action, speed_action, pitch_action, lift_action])
+
+        # only steer and speed
+        # action = np.array([steer_action, speed_action, 0, 0])
+        action = np.array([steer_action, speed_action, 0, 0])
 
         # save data
-        self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
-        self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+        # self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
+        # self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
         self.steer_pid.save_data(current_steer, steer_action, self.steer_pid.SetPoint)
         self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
 
@@ -99,7 +102,7 @@ class LLC:
 
 
 class PID:
-    def __init__(self, P=0.2, I=0.0, D=0.0, saturation=False, current_time=None):
+    def __init__(self, P=0.2, I=0.0, D=0.0, saturation=1.0, current_time=None):
 
         self.Kp = P
         self.Ki = I
@@ -159,14 +162,29 @@ class PID:
 
             output = self.PTerm + (self.Ki * self.ITerm) + (self.Kd * self.DTerm)
 
-            if self.saturation:
-                # saturate output between [-1,1]
-                if output > 1.0:
-                    output = 1.0
-                elif output < -1.0:
-                    output = -1.0
+            # saturate output between [-saturation, saturation]
+            if output > self.saturation:
+                output = self.saturation
+            elif output < -self.saturation:
+                output = -self.saturation
+
+                # DEAD ZONE - saturation between [-1, -0.4] and [0.4, 1]
+                # dead_zone = 0.3
+                # if output > 0:
+                #     if output > 1:
+                #         output = 1
+                #     elif output < dead_zone:
+                #         output = dead_zone
+                # elif output < 0:
+                #     if output < -1:
+                #         output = -1
+                #     elif output > -dead_zone:
+                #         output = -dead_zone
 
             return output
+
+        # else:
+        #     return 0
 
 
     def setSampleTime(self, sample_time):
@@ -199,5 +217,5 @@ class PID:
         ax_action.plot(x, self._action, color='blue')
 
         # save
-        fig.savefig(os.getcwd() + '/plots/' + fileName)
+        fig.savefig('/home/sload/git/SmartLoader/LLC/plots/' + fileName)
         print('figure saved!')

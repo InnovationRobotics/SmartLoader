@@ -6,13 +6,14 @@ from std_msgs.msg import Int32, Bool
 from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
-from geometry_msgs.msg import PoseStamped, TwistStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped, PoseWithCovarianceStamped
 from sensor_msgs.msg import PointCloud2
 import ros_numpy
-# from grid_map_msgs.msg import GridMap
+from grid_map_msgs.msg import GridMap
 from HeatMapGen import HeatMap
 from matplotlib import pyplot as plt
 from LLC import LLC_pid
+from keras.models import load_model
 
 import os
 import time
@@ -44,27 +45,27 @@ class SmartLoader:
 
     # CALLBACKS
     def VehiclePositionCB(self,stamped_pose):
-        x = stamped_pose.pose.position.x
-        y = stamped_pose.pose.position.y
-        z = stamped_pose.pose.position.z
+        x = stamped_pose.pose.pose.position.x
+        y = stamped_pose.pose.pose.position.y
+        z = stamped_pose.pose.pose.position.z
         self.world_state['VehiclePos'] = np.array([x,y,z])
 
-        qx = stamped_pose.pose.orientation.x
-        qy = stamped_pose.pose.orientation.y
-        qz = stamped_pose.pose.orientation.z
-        qw = stamped_pose.pose.orientation.w
+        qx = stamped_pose.pose.pose.orientation.x
+        qy = stamped_pose.pose.pose.orientation.y
+        qz = stamped_pose.pose.pose.orientation.z
+        qw = stamped_pose.pose.pose.orientation.w
         self.world_state['VehicleOrien'] = np.array([qx,qy,qz,qw])
 
     def ShovelPositionCB(self,stamped_pose):
-        x = stamped_pose.pose.position.x
-        y = stamped_pose.pose.position.y
-        z = stamped_pose.pose.position.z
+        x = stamped_pose.pose.pose.position.x
+        y = stamped_pose.pose.pose.position.y
+        z = stamped_pose.pose.pose.position.z
         self.world_state['ShovelPos'] = np.array([x,y,z])
 
-        qx = stamped_pose.pose.orientation.x
-        qy = stamped_pose.pose.orientation.y
-        qz = stamped_pose.pose.orientation.z
-        qw = stamped_pose.pose.orientation.w
+        qx = stamped_pose.pose.pose.orientation.x
+        qy = stamped_pose.pose.pose.orientation.y
+        qz = stamped_pose.pose.pose.orientation.z
+        qw = stamped_pose.pose.pose.orientation.w
         self.world_state['ShovelOrien'] = np.array([qx,qy,qz,qw])
 
     def ArmHeightCB(self, data):
@@ -120,6 +121,24 @@ class SmartLoader:
             self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
             self.heatmap_arr=[]
 
+    def GridMapCB(self, data):
+        raw_map = data
+        hmap = np.array(data.data[1].data).reshape([int(data.info.length_y/data.info.resolution),int(data.info.length_x/data.info.resolution)])
+        # plt.imshow(hmap)
+        # plt.show(block=False)
+        # plt.pause(0.01)
+        # plt.close
+        # print('BearkPointAssist')
+        ### based on velodyne FOV [330:25]
+        # np_pc = ros_numpy.numpify(data)
+        # xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
+        # self.heat_map = HeatMap(xyz_array)[0]
+        # self.heatmap_arr.append(self.heat_map)
+        # if len(self.heatmap_arr) > 3:
+        #     # self.upd_heat_map = self.heatmap_arr[-1]
+        #     self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
+        #     self.heatmap_arr=[]
+
     def do_action(self, agent_action):
 
         joymessage = Joy()
@@ -129,7 +148,7 @@ class SmartLoader:
         joymessage.axes = [joyactions[0], 0., joyactions[2], joyactions[3], joyactions[4], joyactions[5], 0., 0.]
 
         joymessage.buttons = 11*[0]
-        joymessage.buttons[7] = 0 ## activation of hydraulic pump
+        joymessage.buttons[7] = 1 ## activation of hydraulic pump
 
         self.joypub.publish(joymessage)
         rospy.logdebug(joymessage)
@@ -139,15 +158,15 @@ class SmartLoader:
 
         joyactions = np.zeros(6)
 
-        # joyactions[2] = joyactions[5] = 1
+        joyactions[2] = joyactions[5] = 1
 
         joyactions[0] = agent_action[0] # vehicle turn
         joyactions[3] = agent_action[2] # blade pitch
         joyactions[4] = agent_action[3] # arm up/down
 
         if agent_action[1] < 0: # drive backwards
-            # joyactions[2] = 2 * agent_action[1] + 1
-            joyactions[2] = -2*agent_action[1] - 1
+            joyactions[2] = 2 * agent_action[1] + 1
+            # joyactions[2] = -2*agent_action[1] - 1
 
         elif agent_action[1] > 0: # drive forwards
             joyactions[5] = -2*agent_action[1] + 1
@@ -165,6 +184,8 @@ class SmartLoader:
         self.heatmap_arr = []
         self.upd_heat_map = []
 
+        self.obs = {}
+
         # For time step
         self.current_time = time.time()
         self.last_time = self.current_time
@@ -177,14 +198,14 @@ class SmartLoader:
         self.rate = rospy.Rate(10)  # 10hz
 
         # Define Subscribers
-        self.vehiclePositionSub = rospy.Subscriber('Sl_pose', PoseStamped, self.VehiclePositionCB)
-        self.shovelPositionSub = rospy.Subscriber('shovel_pose', PoseStamped, self.ShovelPositionCB)
-        self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
-        self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
+        self.vehiclePositionSub = rospy.Subscriber('sl_pose', PoseWithCovarianceStamped, self.VehiclePositionCB)
+        self.shovelPositionSub = rospy.Subscriber('shovel_pose', PoseWithCovarianceStamped, self.ShovelPositionCB)
+        # self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
+        # self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
         self.PointCloudSub = rospy.Subscriber('/velodyne_points', PointCloud2, self.PointCloudCB)
-        # self.mapSub = rospy.Subscriber('Sl_map', GridMap, self.GridMapCB)
-        # self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
+        self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
+        self.mapSub = rospy.Subscriber('/sl_map', GridMap, self.GridMapCB)
 
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
@@ -197,9 +218,17 @@ class SmartLoader:
 
         # current state
         h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
-        arm_pitch = self.world_state['BladePitch'].item(0)
-        obs = [h_map, arm_lift, arm_pitch]
+        # arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_pitch = self.world_state['BladePitch'].item(0)
+        x_vehicle = self.world_state['VehiclePos'].item(0)
+        y_vehicle = self.world_state['VehiclePos'].item(1)
+        vehicle_orien = self.world_state['VehicleOrienIMU']
+        x_blade = self.world_state['ShovelPos'].item(0)
+        y_blade = self.world_state['ShovelPos'].item(1)
+        blade_orien = self.world_state['BladeOrien']
+
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
+               'x_blade':x_blade, 'y_blade':y_blade, 'blade_orien':blade_orien}
 
         return obs
 
@@ -233,11 +262,18 @@ class SmartLoader:
         self.last_time = self.current_time
 
         # current state
-        h_map = self.upd_heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
-        arm_pitch = self.world_state['BladePitch'].item(0)
+        h_map = self.heat_map
+        # arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_pitch = self.world_state['BladePitch'].item(0)
+        x_vehicle = self.world_state['VehiclePos'].item(0)
+        y_vehicle = self.world_state['VehiclePos'].item(1)
+        vehicle_orien = self.world_state['VehicleOrienIMU']
+        x_blade = self.world_state['ShovelPos'].item(0)
+        y_blade = self.world_state['ShovelPos'].item(1)
+        # blade_orien = self.world_state['BladeOrien']
 
-        obs = [h_map, arm_lift, arm_pitch]
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
+               'x_blade':x_blade, 'y_blade':y_blade}
 
         # if action:
         self.do_action(action)
