@@ -76,7 +76,7 @@ if job == 'heat_map_generator':
                 act = [float(i) for i in act]
 
                 # read states (i.e. arm heigh and pitch and body and shovle orientation)
-                body_orien_str = row[8][0:107].split()
+                body_orien_str = row[8][0:120].split()
                 if len(body_orien_str) == 0:  # if no imu data, skip line
                     skipped_data += 1
                     continue
@@ -87,7 +87,7 @@ if job == 'heat_map_generator':
                     except:
                         continue
 
-                blade_orien_str = row[7][0:110].split()
+                blade_orien_str = row[7][0:120].split()
                 if len(blade_orien_str) == 0:  # if no imu data, skip line
                     skipped_data += 1
                     continue
@@ -99,6 +99,8 @@ if job == 'heat_map_generator':
                         continue
 
                 state = [int(row[5]), int(row[6]), body_orien, blade_orien]
+                if len(np.hstack(np.array(state)))==9:
+                    print('no')
 
                 # read heatmap
                 h_map_file = row[10] + '.npz'
@@ -164,7 +166,7 @@ if job == 'heat_map_generator':
                 #         h_map[x_ind, y_ind] = z[point]
 
                 frame_time = time.time() - start_time
-                print(frame_time)
+                # print('Frame time: ', frame_time)
 
                 if show_height_map:
                     plt.imshow(h_map, aspect=0.1)
@@ -176,9 +178,11 @@ if job == 'heat_map_generator':
                 actions.append(joy_to_agent(act))
                 states.append(state)
 
+
             starts.pop(-1)
             print('episode {} appended, {} skipped frames due to missing data or low quality pointclouds'.format(
                 ep_counter, skipped_data))
+            print('hm: ', len(heatmaps), 'str: ', len(starts), 'sta: ', len(states), 'act: ', len(actions))
             skipped_data = 0
             ep_counter += 1
 
