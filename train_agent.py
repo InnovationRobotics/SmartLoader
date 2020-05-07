@@ -2,6 +2,7 @@
 
 import os
 from stable_baselines.sac.policies import MlpPolicy as sac_MlpPolicy
+from stable_baselines.sac.policies import CnnPolicy
 from stable_baselines.ddpg.policies import MlpPolicy as ddpg_MlpPolicy
 from stable_baselines.common.policies import MlpPolicy as Common_MlpPolicy
 from stable_baselines.common.noise import NormalActionNoise, OrnsteinUhlenbeckActionNoise, AdaptiveParamNoiseSpec
@@ -85,8 +86,9 @@ def expert_dataset(name):
 def main():
     global model, best_model_path, last_model_path
     # mission = 'PushStonesEnv' # Change according to algorithm
-    mission = 'PickUpEnv'
-    env = gym.make(mission + '-v0').unwrapped
+    mission = 'PushAlgoryxEnv'
+    # env = gym.make(mission + '-v0').unwrapped
+    env = gym.make(mission + '-v0')
 
     # Create log and model dir
     dir = 'stable_bl/' + mission
@@ -129,8 +131,8 @@ def main():
         policy_kwargs = dict(layers=[64, 64, 64])
 
         # SAC - start learning from scratch
-        model = SAC(sac_MlpPolicy, env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
-             learning_starts=3000, train_freq=1, batch_size=64,
+        model = SAC(CnnPolicy, env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
+             learning_starts=1000, train_freq=1, batch_size=64,
              tau=0.01, ent_coef='auto', target_update_interval=1,
              gradient_steps=1, target_entropy='auto', action_noise=None,
              random_exploration=0.0, verbose=2, tensorboard_log=log_dir,

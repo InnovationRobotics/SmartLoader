@@ -44,16 +44,16 @@ def quatToEuler(quat):
 class SmartLoader:
 
     # CALLBACKS
-    def VehiclePositionCB(self,stamped_pose):
-        x = stamped_pose.pose.pose.position.x
-        y = stamped_pose.pose.pose.position.y
-        z = stamped_pose.pose.pose.position.z
+    def VehiclePositionCB(self,pose):
+        x = pose.pose.position.x
+        y = pose.pose.position.y
+        z = pose.pose.position.z
         self.world_state['VehiclePos'] = np.array([x,y,z])
 
-        qx = stamped_pose.pose.pose.orientation.x
-        qy = stamped_pose.pose.pose.orientation.y
-        qz = stamped_pose.pose.pose.orientation.z
-        qw = stamped_pose.pose.pose.orientation.w
+        qx = pose.pose.orientation.x
+        qy = pose.pose.orientation.y
+        qz = pose.pose.orientation.z
+        qw = pose.pose.orientation.w
         self.world_state['VehicleOrien'] = np.array([qx,qy,qz,qw])
 
     def ShovelPositionCB(self,stamped_pose):
@@ -114,16 +114,17 @@ class SmartLoader:
         ### based on velodyne FOV [330:25]
         np_pc = ros_numpy.numpify(data)
         xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
-        self.heat_map = HeatMap(xyz_array)[0]
-        self.heatmap_arr.append(self.heat_map)
-        if len(self.heatmap_arr) > 3:
-            # self.upd_heat_map = self.heatmap_arr[-1]
-            self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
-            self.heatmap_arr=[]
+        # self.heat_map = HeatMap(xyz_array)[0]
+        # self.heatmap_arr.append(self.heat_map)
+        # if len(self.heatmap_arr) > 3:
+        #     # self.upd_heat_map = self.heatmap_arr[-1]
+        #     self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
+        #     self.heatmap_arr=[]
 
     def GridMapCB(self, data):
         raw_map = data
         hmap = np.array(data.data[1].data).reshape([int(data.info.length_y/data.info.resolution),int(data.info.length_x/data.info.resolution)])
+        self.world_state['GridMap'] = hmap
         # plt.imshow(hmap)
         # plt.show(block=False)
         # plt.pause(0.01)
@@ -198,13 +199,15 @@ class SmartLoader:
         self.rate = rospy.Rate(10)  # 10hz
 
         # Define Subscribers
-        self.vehiclePositionSub = rospy.Subscriber('sl_pose', PoseWithCovarianceStamped, self.VehiclePositionCB)
+        self.vehiclePositionSub = rospy.Subscriber('mavros/local_position/pose', PoseStamped, self.VehiclePositionCB)
+        # self.vehiclePositionSub = rospy.Subscriber('sl_pose', PoseWithCovarianceStamped, self.VehiclePositionCB)
+
         self.shovelPositionSub = rospy.Subscriber('shovel_pose', PoseWithCovarianceStamped, self.ShovelPositionCB)
         # self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
         # self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
         self.PointCloudSub = rospy.Subscriber('/velodyne_points', PointCloud2, self.PointCloudCB)
-        self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
+        # self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
         self.mapSub = rospy.Subscriber('/sl_map', GridMap, self.GridMapCB)
 
         # Define Publisher
@@ -217,18 +220,20 @@ class SmartLoader:
         time.sleep(1)
 
         # current state
-        h_map = self.heat_map
+        h_map = self.world_state['GridMap']
         # arm_lift = self.world_state['ArmHeight'].item(0)
         # arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
-        vehicle_orien = self.world_state['VehicleOrienIMU']
+        # vehicle_orien = self.world_state['VehicleOrienIMU']
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
-        blade_orien = self.world_state['BladeOrien']
+        # blade_orien = self.world_state['BladeOrien']
 
-        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
-               'x_blade':x_blade, 'y_blade':y_blade, 'blade_orien':blade_orien}
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle,
+               'x_blade':x_blade, 'y_blade':y_blade}
+        # obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
+        #        'x_blade':x_blade, 'y_blade':y_blade, 'blade_orien':blade_orien}
 
         return obs
 
@@ -262,18 +267,21 @@ class SmartLoader:
         self.last_time = self.current_time
 
         # current state
-        h_map = self.heat_map
+        h_map = self.world_state['GridMap']
+ #       h_map = self.heat_map
+
         # arm_lift = self.world_state['ArmHeight'].item(0)
         # arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
-        vehicle_orien = self.world_state['VehicleOrienIMU']
+        # vehicle_orien = self.world_state['VehicleOrienIMU']
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
         # blade_orien = self.world_state['BladeOrien']
 
-        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
-               'x_blade':x_blade, 'y_blade':y_blade}
+        # obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
+        #        'x_blade':x_blade, 'y_blade':y_blade}
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'x_blade':x_blade, 'y_blade':y_blade}
 
         # if action:
         self.do_action(action)

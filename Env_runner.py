@@ -78,6 +78,7 @@ if __name__ == '__main__':
 
             action = pid.step(obs, des)
             obs = env.step(action)
+            print(action)
             # hmap = obs['h_map']
 
             error = np.linalg.norm([des[0] - obs['x_blade'], des[1] - obs['y_blade']])
