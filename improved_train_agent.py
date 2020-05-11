@@ -9,7 +9,8 @@ import time
 import numpy as np
 import tensorflow as tf
 from typing import Dict
-from tensor_board_cb import TensorboardCallback
+#from tensor_board_cb import TensorboardCallback
+from stable_baselines.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 import gym_SmartLoader.envs
 
 
@@ -34,6 +35,8 @@ ALGOS = {
 JOBS = ['train', 'record', 'BC_agent', 'play']
 
 POLICIES = ['MlpPolicy', 'CnnPolicy']
+
+BEST_MODELS_NUM = 0
 
 def expert_dataset(name):
     # Benny's recordings to dict
@@ -63,7 +66,7 @@ class ExpertDatasetLoader:
             ExpertDatasetLoader.dataset = ExpertDataset(expert_path=(os.getcwd() + '/dataset.npz'), traj_limitation=-1)
         return ExpertDatasetLoader.dataset
 
-class CheckEvalCallback(TensorboardCallback):
+class CheckEvalCallback(BaseCallback, verbose=2):
     """
     A custom callback that checks agent's evaluation every predefined number of steps.
     :param model_dir: (str) directory path for model save
@@ -71,7 +74,7 @@ class CheckEvalCallback(TensorboardCallback):
     :param save_interval: (int) Number of timestamps between best mean model saves
     """
 
-    def __init__(self, model_dir, verbose=0, save_interval=2000):
+    def __init__(self, model_dir, verbose, save_interval=2000):
         super(CheckEvalCallback, self).__init__(verbose)
         self._best_model_path = model_dir
         self._last_model_path = model_dir
@@ -114,8 +117,9 @@ class CheckEvalCallback(TensorboardCallback):
                 self.model.save(self._best_model_path + '_rew_' + str(np.round(self._best_mean_reward, 2)))
             path = self._last_model_path + '_' + str(time.localtime().tm_mday) + '_' + str(
                 time.localtime().tm_hour) + '_' + str(time.localtime().tm_min)
+            global BEST_MODELS_NUM
+            BEST_MODELS_NUM=BEST_MODELS_NUM+1
             self.model.save(path)
-        tensorBoardRet = super(CheckEvalCallback, self)._on_step()
         return True
 
     def _on_rollout_end(self) -> None:
@@ -136,10 +140,34 @@ class CheckEvalCallback(TensorboardCallback):
         print('_on_training_end')
 
 
+class TensorboardCallback(BaseCallback, verbose=2):
+    """
+    Custom callback for plotting additional values in tensorboard.
+    """
+    def __init__(self, verbose):
+        self.is_tb_set = False
+        super(TensorboardCallback, self).__init__(verbose)
+
+    def _on_step(self) -> bool:
+        # Log additional tensor
+        if not self.is_tb_set:
+            with self.model.graph.as_default():
+                tf.summary.scalar('value_target', tf.reduce_mean(self.model.value_target))
+                self.model.summary = tf.summary.merge_all()
+            self.is_tb_set = True
+        # Log scalar value (here a random variable)
+        value = np.random.random()
+        global BEST_MODELS_NUM
+        value = BEST_MODELS_NUM
+        summary = tf.Summary(value=[tf.Summary.Value(tag='best_models', simple_value=value)])
+        self.locals['writer'].add_summary(summary, self.num_timesteps)
+        return True
+
 def data_saver(obs, act, rew, dones, ep_rew):
-    np.save('/home/graphics/git/SmartLoader/saved_ep/obs', obs)
-    np.save('/home/graphics/git/SmartLoader/saved_ep/act', act)
-    np.save('/home/graphics/git/SmartLoader/saved_ep/rew', rew)
+    user = os.getenv("HOME")
+    np.save(user+'/git/SmartLoader/saved_ep/obs', obs)
+    np.save(user+'/git/SmartLoader/saved_ep/act', act)
+    np.save(user+'/git/SmartLoader/saved_ep/rew', rew)
 
     ep_str = [False] * len(dones)
     ep_str[0] = True
@@ -148,8 +176,8 @@ def data_saver(obs, act, rew, dones, ep_rew):
         if dones[i]:
             ep_str[i + 1] = True
 
-    np.save('/home/graphics/git/SmartLoader/saved_ep/ep_str', ep_str)
-    np.save('/home/graphics/git/SmartLoader/saved_ep/ep_ret', ep_rew)
+    np.save(user+'/git/SmartLoader/saved_ep/ep_str', ep_str)
+    np.save(user+'/git/SmartLoader/saved_ep/ep_ret', ep_rew)
 
 
 def build_model(algo, policy, env_name, log_dir, expert_dataset=None):
@@ -275,7 +303,8 @@ def train(algo, policy, pretrain, n_timesteps, log_dir, model_dir, env_name, mod
     # learn
     print("learning model type", type(model))
     eval_callback = CheckEvalCallback(model_dir, save_interval=model_save_interval)
-    model.learn(total_timesteps=n_timesteps, callback=[eval_callback])
+    tensorboard_callback = TensorboardCallback(verbose=2)
+    model.learn(total_timesteps=n_timesteps, callback=[eval_callback, tensorboard_callback])
     model.save(env_name)
 
 

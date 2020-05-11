@@ -262,8 +262,7 @@ class PushAlgoryx(BaseEnv):
             self.simOn = False
 
         current_pos = self.world_state['VehiclePos']
-
-        threshold = 1
+        threshold = 3
         if np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2]) < threshold:
             done = True
             reset = 'goal achieved'
