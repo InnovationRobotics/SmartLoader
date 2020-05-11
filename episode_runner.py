@@ -1,67 +1,13 @@
 from keras.models import load_model
 from SmartLoaderIRL import SmartLoader
-import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib import animation
-from mpl_toolkits.mplot3d import Axes3D
 from LLC import LLC_pid
 import numpy as np
 import math
 import time
-from scipy.spatial.transform import Rotation as R
 
-
-y_map_clip = 30
-x_map_front_offset = 100
-x_map_front_clip = 70
-
-def timing_test():
-
-    for _ in range(10):
-        start_x_obs = env.get_obs()['x_blade']
-        action = np.array([0, 1, 0, 0])
-        time.sleep(1)
-        x_obs = env.step(action)['x_blade']
-        x_obs_err = x_obs - start_x_obs
-        print('GOoooooo')
-        start_time = time.time()
-        while x_obs_err < 0.003:
-            x_obs_err = x_obs - start_x_obs
-            # print(lift_obs_err)
-            x_obs = env.get_obs()['x_blade']
-
-        end_time = time.time()-start_time
-        print(end_time)
-
-        action = np.array([0, 0, 0, 0])
-        env.step(action)
-        time.sleep(1)
-    quit()
-
-    ### timing test
-    # for _ in range(10):
-    #     start_lift_obs = env.get_obs()['lift']
-    #     action = np.array([0, 0, 0, 1])
-    #     time.sleep(1)
-    #     lift_obs = env.step(action)['lift']
-    #     lift_obs_err = lift_obs - start_lift_obs
-    #     print('GOoooooo')
-    #     start_time = time.time()
-    #     while lift_obs_err < 4:
-    #         lift_obs_err = lift_obs - start_lift_obs
-    #         # print(lift_obs_err)
-    #         lift_obs = env.get_obs()['lift']
-    #
-    #     end_time = time.time()-start_time
-    #     print(end_time)
-    #
-    #     action = np.array([0, 0, 0, 0])
-    #     env.step(action)
-    #     time.sleep(1)
-    # quit()
 
 def show_map(hmap):
-
     plt.imshow(hmap)
     plt.show(block=False)
     plt.pause(0.01)
@@ -77,6 +23,8 @@ def normalize_map(h_map):
     return norm_hmap
 
 def map_clipper(hmap, shovle_pos, x_clip=None, x_offset=None, y_clip=None):
+
+    y_map_clip = 30
 
     if x_clip:
         x_map_min = int(shovle_pos[0] * 100 + x_offset)
@@ -116,9 +64,6 @@ def desired_config(obs, x_model, lift_pitch_model):
     norm_hmap = normalize_map(hmap)
 
     Lift_Pitch_hmap = map_clipper(norm_hmap, blade_pos, x_clip=50, x_offset=20, y_clip=30)
-
-    # show_map(Lift_Pitch_hmap)
-
     Thrust_hmap = map_clipper(norm_hmap, blade_pos, y_clip=30)
 
     Lift_Pitch_hmap = Lift_Pitch_hmap.reshape(1, 1, Lift_Pitch_hmap.shape[0], Lift_Pitch_hmap.shape[1])
@@ -127,20 +72,17 @@ def desired_config(obs, x_model, lift_pitch_model):
     L_P_des = lift_pitch_model.predict(Lift_Pitch_hmap)[0]
     x_deses = x_model.predict(Thrust_hmap)[0] * 3
 
-
-    lifts = L_P_des[[np.arange(0,20,2)]] * 50 + 150
-    pitches = L_P_des[[np.arange(1,20,2)]] * 230 + 50
-    lift_des = lifts[-1]-4
-    pitch_des = pitches[-1]
+    lifts = np.array([L_P_des[0], L_P_des[2], L_P_des[4], L_P_des[6], L_P_des[8]]) * 50 + 150
+    pitches = np.array([L_P_des[1], L_P_des[3], L_P_des[5], L_P_des[7], L_P_des[9]]) * 230 + 50
 
     x_err = x_deses - obs['x_blade']
     min_x_err = np.where(x_err > 0.1)
     if len(min_x_err[0]) == 0:
-        x_des = obs['x_blade'] + 0.03
+        x_des = obs['x_blade'] + 0.05
     else:
         x_des = np.min(x_err[min_x_err]) + obs['x_blade']
 
-    return [x_des, obs['y_blade'], lift_des, pitch_des]
+    return [x_des, obs['y_blade'], lifts[0], pitches[0]]
 
 def quatToEuler(quat):
     x = quat[0]
@@ -169,53 +111,33 @@ if __name__ == '__main__':
     env = SmartLoader()
     obs = env.get_obs()
 
-    # des_sample_time = 0.1  # 10 Hz
     x_model = load_model('/home/sload/Downloads/new_test_all_recordings_x_model_10_pred')
-    lift_pitch_model = load_model('/home/sload/Downloads/new_test_new_recordings_LP_model_10_pred')
-
-    push_pid = LLC_pid.PushPid()
+    lift_pitch_model = load_model('/home/sload/Downloads/new_test_new_recordings_LP_model')
 
     X, Y, X_des, Y_des = [], [], [], []
-
-    counter = 0
-    last_loc = obs['x_vehicle']
-
-    # timing_test()
+    steps = 0
 
     for step in range(3):
 
         ##### push mission #####
-        while True:
-            # start_time = time.time()
+        push_pid = LLC_pid.PushPid()
+        counter = 0
+        last_loc = obs['x_vehicle']
 
+        while True:
             des = desired_config(obs, x_model, lift_pitch_model)
+            action = push_pid.step(obs, des)
+            obs = env.step(action)
 
             # save locations
             X.append(obs['x_blade'])
             Y.append(obs['y_blade'])
             X_des.append(des[0])
             Y_des.append(des[1])
+            steps += 1
 
-            # action = push_pid.step(obs, des)
-            # print(obs['z_vehicle'])
-            # print('desired lift = ', des[2], 'current = ', obs['lift'])
-            # print('desired pitch = ', des[3], 'current = ', obs['pitch'])
-
-            action = push_pid.step(obs, des)
-
-            while (des[2] - obs['lift']) > 8:
-                print('lifting!!')
-                lift_action = action
-                lift_action[1] = 0
-                obs = env.step(lift_action)
-                des = desired_config(obs, x_model, lift_pitch_model)
-
-            # action = np.array([0,0,0,0])
-            # action[0]=0
-            # action[1] = 0
-            obs = env.step(action)
-
-            movement = abs(last_loc-obs['x_vehicle'])
+            # stopping conditions
+            movement = abs(last_loc - obs['x_vehicle'])
             print(movement)
             if movement < 0.003:
                 counter += 1
@@ -226,19 +148,42 @@ if __name__ == '__main__':
                 counter = 0
                 last_loc = obs['x_vehicle']
 
-            if obs['x_blade'] >= 2.0:
-                print('got to end point!')
+            if obs['x_blade'] >= 2.2:
                 break
 
+        print('pushing mission done!')
         # plots
         push_pid.lift_pid.save_plot('lift push {}'.format(str(step)), 'lift')
         push_pid.pitch_pid.save_plot('pitch push {}'.format(str(step)), 'pitch')
         # push_pid.steer_pid.save_plot('steer push {}'.format(str(step)), 'steer')
         push_pid.speed_pid.save_plot('speed push {}'.format(str(step)), 'speed')
 
+
+        ##### dump mission #####
+        dump_pid = LLC_pid.DumpPid()
+        while True:
+            action = dump_pid.step(obs)
+            obs = env.step(action)
+
+            # save locations
+            X.append(obs['x_blade'])
+            Y.append(obs['y_blade'])
+            X_des.append(des[0])
+            Y_des.append(des[1])
+
+            # stopping condition
+            if obs['pitch'] >= dump_pid.pitch_pid.SetPoint:
+                break
+
+        print('dumping mission done!')
+        # plots
+        dump_pid.lift_pid.save_plot('lift dump {}'.format(str(step)), 'lift')
+        dump_pid.pitch_pid.save_plot('pitch dump {}'.format(str(step)), 'pitch')
+
+
         ##### drive backwards #####
         back_pid = LLC_pid.DriveBackPid()
-        des = [0.5, obs['y_vehicle'], 155, 125]
+        des = [0.5, obs['y_vehicle'], 155, ]
         # back_pid.steer_pid.SetPoint = 0
         while True:
             action = back_pid.step(obs, des)
@@ -258,8 +203,6 @@ if __name__ == '__main__':
         # plots
         # back_pid.steer_pid.save_plot('steer back {}'.format(str(step)), 'steer')
         back_pid.speed_pid.save_plot('speed back {}'.format(str(step)), 'speed')
-        back_pid.pitch_pid.save_plot('pitch back {}'.format(str(step)), 'pitch')
-        back_pid.lift_pid.save_plot('lift back {}'.format(str(step)), 'lift')
 
     # stop moving
     action = np.array([0, 0, 0, 0])
