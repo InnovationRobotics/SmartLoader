@@ -34,7 +34,7 @@ class PushAlgoryx(BaseEnv):
         self._start_pos = np.array([12.86, -23.23, 1.578])
         self.ref_pos = np.array([12.86, -14.66, 1.5])
         # self.ref_pos = np.array([15.5, -22.8, 1.5])
-        self._boarders = [7, 17, -28, -10]
+        self._boarders = [9, 16, -28, -10]
 
         # takeOne: boarders = [0.5, 20, -30, -13]
 
@@ -180,7 +180,7 @@ class PushAlgoryx(BaseEnv):
         arm_pitch = self.world_state['BladePitch']
         current_pos = self.world_state['VehiclePos']
         dist = np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2])
-        max_dist = 5
+        max_dist = 10
         normalized_dist = dist / max_dist
         arm_lift_max = 240
         arm_lift_min = 227
@@ -188,8 +188,12 @@ class PushAlgoryx(BaseEnv):
         arm_pitch_max = 135
         arm_pitch_min = 0
         arm_pitch_interval = arm_pitch_max - arm_pitch_min
-        normalized_pitch = (arm_pitch_max - arm_pitch) / arm_pitch_interval
-        normalized_lift = (arm_lift_max - arm_lift) / arm_lift_interval
+
+        # multiply by factor to make blade pose more important
+        factor = 2.0
+        normalized_pitch = factor * (arm_pitch_max - arm_pitch) / arm_pitch_interval
+        normalized_lift = factor *  (arm_lift_max - arm_lift) / arm_lift_interval
+
         mse = np.mean(np.square([normalized_lift, normalized_pitch, normalized_dist])).squeeze()
         return -mse / PushAlgoryx.MAX_STEPS
 
@@ -206,7 +210,7 @@ class PushAlgoryx(BaseEnv):
         r_t = self.reward_func()
         assert r_t < 0
         # r_t= max(-0.2, r_t)
-        r_t *= 0.2
+        r_t *= 0.1
         # check if done
         done, final_reward, reset = self.end_of_episode()
 
@@ -263,7 +267,8 @@ class PushAlgoryx(BaseEnv):
         done = False
         reset = 'No'
         final_reward = 0
-
+        current_pos = self.world_state['VehiclePos']
+        threshold = 4
         if self.out_of_boarders():
             done = True
             reset = 'out of boarders' + np.copy(self.world_state['VehiclePos']).__str__()
@@ -271,23 +276,26 @@ class PushAlgoryx(BaseEnv):
             final_reward = - PushAlgoryx.FINAL_REWARD
             self.episode.killSimulation()
             self.simOn = False
-
-        if self.steps > PushAlgoryx.MAX_STEPS:
+        elif self.steps > PushAlgoryx.MAX_STEPS:
             done = True
             reset = 'limit time steps'
             print('----------------', reset, '----------------')
             self.episode.killSimulation()
             self.simOn = False
-
-        current_pos = self.world_state['VehiclePos']
-        threshold = 3
-        if np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2]) < threshold:
+        elif np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2]) < threshold:
             done = True
             reset = 'goal achieved'
             print('----------------', reset, '----------------')
             self.episode.killSimulation()
             self.simOn = False
             final_reward = PushAlgoryx.FINAL_REWARD
+        elif self.world_state['ArmHeight'] < 233 and self.steps > PushAlgoryx.MAX_STEPS / 2.0:
+            done = True
+            reset = 'Arm Too High For Too Long'
+            print('----------------', reset, '----------------')
+            self.episode.killSimulation()
+            self.simOn = False
+            final_reward = - PushAlgoryx.FINAL_REWARD / 2.0
 
         self.steps += 1
 
