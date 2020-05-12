@@ -15,8 +15,7 @@ from gym_SmartLoader.envs.SmartLoaderEnvs_dir import BaseEnv
 class PushAlgoryx(BaseEnv):
     MAX_STEPS = 200
     STEP_REWARD = 1 / MAX_STEPS
-    FINAL_REWARD = 1
-
+    FINAL_REWARD = 1.0
 
     def __init__(self):
         super(PushAlgoryx, self).__init__()
@@ -32,7 +31,13 @@ class PushAlgoryx(BaseEnv):
         # self.time_step = []
         # self.last_obs = np.array([])
         self.TIME_STEP = 0.1  # 100 mili-seconds
-        self.ref_pos = np.array([15.5, -22.8, 1.5])
+        self._start_pos = np.array([12.86, -23.23, 1.578])
+        self.ref_pos = np.array([12.86, -14.66, 1.5])
+        # self.ref_pos = np.array([15.5, -22.8, 1.5])
+        self._boarders = [7, 17, -28, -10]
+
+        # takeOne: boarders = [0.5, 20, -30, -13]
+
         # Define action and observation space
         # They must be gym.spaces objects
         # Example when using discrete actions:
@@ -40,17 +45,17 @@ class PushAlgoryx(BaseEnv):
         # spaces.Discrete(N_DISCRETE_ACTIONS)
         # Example for using image as input:
         N_CHANNELS = 1
-        self.MAP_SIZE_Y = 291 # 260
-        self.MAP_SIZE_X = 150 # 160
+        self.MAP_SIZE_Y = 291  # 260
+        self.MAP_SIZE_X = 150  # 160
         self.observation_space = spaces.Box(low=0, high=255,
                                             shape=(43657,), dtype=np.uint8)
 
         # self.observation_space = spaces.Box(low=0, high=255,
         #                                     shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, N_CHANNELS), dtype=np.uint8)
 
-        self.world_state['GridMap'] = np.zeros(shape=(self.MAP_SIZE_Y,self. MAP_SIZE_X, N_CHANNELS))
+        self.world_state['GridMap'] = np.zeros(shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, N_CHANNELS))
 
-        self.keys = ['GridMap','VehiclePos', 'euler_ypr',
+        self.keys = ['GridMap', 'VehiclePos', 'euler_ypr',
                      'ArmHeight', 'BladePitch']
 
         rospy.init_node('slagent', anonymous=False)
@@ -62,8 +67,10 @@ class PushAlgoryx(BaseEnv):
 
         self._obs = []
 
-    # CALLBACKS
+        self.total_reward = 0.0
+        self.last_best_model = None
 
+    # CALLBACKS
     def subscribe_to_topics(self):
         self.vehiclePositionSub = rospy.Subscriber('mavros/local_position/pose', PoseStamped, self.VehiclePositionCB)
         # #self.vehicleVelocitySub = rospy.Subscriber('mavros/local_position/velocity', TwistStamped, self.VehicleVelocityCB)
@@ -82,11 +89,15 @@ class PushAlgoryx(BaseEnv):
         self.world_state['BladePitch'] = np.array([height])
 
     def GridMapCB(self, data):
-        if ((int(data.info.length_y / data.info.resolution) != self.MAP_SIZE_Y) or (int(data.info.length_x / data.info.resolution) != self.MAP_SIZE_X)):
-            print("Do not replace map" +"(" +self.MAP_SIZE_X.__str__() +")" + "(" +self.MAP_SIZE_Y.__str__() +") with (" + int(data.info.length_x / data.info.resolution).__str__()+","+int(data.info.length_y / data.info.resolution).__str__())
+        if ((int(data.info.length_y / data.info.resolution) != self.MAP_SIZE_Y) or (
+                int(data.info.length_x / data.info.resolution) != self.MAP_SIZE_X)):
+            print(
+                "Do not replace map" + "(" + self.MAP_SIZE_X.__str__() + ")" + "(" + self.MAP_SIZE_Y.__str__() + ") with (" + int(
+                    data.info.length_x / data.info.resolution).__str__() + "," + int(
+                    data.info.length_y / data.info.resolution).__str__())
         else:
             hmap = np.array(data.data[1].data).reshape([self.MAP_SIZE_Y, self.MAP_SIZE_X, 1])
-#            hmap = np.array(data.data[1].data).reshape([int(data.info.length_y / data.info.resolution), int(data.info.length_x / data.info.resolution)])
+            #            hmap = np.array(data.data[1].data).reshape([int(data.info.length_y / data.info.resolution), int(data.info.length_x / data.info.resolution)])
 
             self.world_state['GridMap'] = hmap
 
@@ -98,7 +109,7 @@ class PushAlgoryx(BaseEnv):
         # clear all
         self.world_state = {}
         self.steps = 0
-        self.total_reward = 0
+        self.total_reward = 0.0
         self._obs = []
 
         # initial state depends on environment (mission)
@@ -159,7 +170,7 @@ class PushAlgoryx(BaseEnv):
         pitch = self.world_state['euler_ypr'].item(1)
         roll = self.world_state['euler_ypr'].item(2)
         h_map_flat = h_map.flatten()
-        obs = {'h_map': h_map_flat,'x_vehicle': x_vehicle, 'y_vehicle': y_vehicle, 'arm_lift': arm_lift,
+        obs = {'h_map': h_map_flat, 'x_vehicle': x_vehicle, 'y_vehicle': y_vehicle, 'arm_lift': arm_lift,
                'arm_pitch': arm_pitch, 'yaw': yaw, 'pitch': pitch, 'roll': roll}
         # obs = {'h_map': h_map}
         return obs
@@ -169,7 +180,7 @@ class PushAlgoryx(BaseEnv):
         arm_pitch = self.world_state['BladePitch']
         current_pos = self.world_state['VehiclePos']
         dist = np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2])
-        max_dist  = 5
+        max_dist = 5
         normalized_dist = dist / max_dist
         arm_lift_max = 240
         arm_lift_min = 227
@@ -179,8 +190,8 @@ class PushAlgoryx(BaseEnv):
         arm_pitch_interval = arm_pitch_max - arm_pitch_min
         normalized_pitch = (arm_pitch_max - arm_pitch) / arm_pitch_interval
         normalized_lift = (arm_lift_max - arm_lift) / arm_lift_interval
-        mse = np.mean(np.square([normalized_lift,normalized_pitch, normalized_dist])).squeeze()
-        return -mse/PushAlgoryx.MAX_STEPS
+        mse = np.mean(np.square([normalized_lift, normalized_pitch, normalized_dist])).squeeze()
+        return -mse / PushAlgoryx.MAX_STEPS
 
     def step(self, action):
         # if action:
@@ -204,11 +215,13 @@ class PushAlgoryx(BaseEnv):
         # self.total_reward = max(-0.2, self.total_reward)
         self.total_reward = self.total_reward + step_reward
 
+        self.done = done
         if done:
             self.world_state = {}
-#           print('initial distance = ', self.init_dis, ' total reward = ', self.total_reward)
 
-        info = { "action": action, "reward": self.total_reward, "step": self.steps,
+        #           print('initial distance = ', self.init_dis, ' total reward = ', self.total_reward)
+
+        info = {"action": action, "reward": self.total_reward, "step": self.steps,
                 "reset reason": reset, "r_t": r_t, "final_reward": final_reward}
 
         self.last_rt = r_t
@@ -239,10 +252,12 @@ class PushAlgoryx(BaseEnv):
 
     def out_of_boarders(self):
         # check if vehicle is out of scene boarders
-        boarders = [0.5, 20, -30, -13]
+        # start local: x=12, y=-23, z=1.578
+
         curr_vehicle_pose = np.copy(self.world_state['VehiclePos'])
-        return curr_vehicle_pose[0] < boarders[0] or curr_vehicle_pose[0] > boarders[1] or curr_vehicle_pose[1] < \
-               boarders[2] or curr_vehicle_pose[1] > boarders[3]
+        return curr_vehicle_pose[0] < self._boarders[0] or curr_vehicle_pose[0] > self._boarders[1] or \
+               curr_vehicle_pose[1] < \
+               self._boarders[2] or curr_vehicle_pose[1] > self._boarders[3]
 
     def end_of_episode(self):
         done = False
@@ -302,8 +317,6 @@ class PushAlgoryx(BaseEnv):
                 if key == 'VehiclePos':
                     item -= self.ref_pos
                 obs = np.concatenate((obs, item), axis=None)
-
-
 
         return obs
 

@@ -148,7 +148,10 @@ class CheckEvalCallback(BaseCallback):
         self._last_model_path = model_dir
         self._best_mean_reward = -np.inf
         self._save_interval = save_interval
-        self._best_rew = -1e6
+        self._best_rew = -np.inf
+        self._ep_rew = []
+        self._mean_10_ep = -10
+        self._last_total_reward = -10
 
     def _on_training_start(self) -> None:
         """
@@ -174,10 +177,19 @@ class CheckEvalCallback(BaseCallback):
         :return: (bool) If the callback returns False, training is aborted early.
         """
 
-        rew = self.locals['self'].episode_reward[0]
 
+        env = self.locals['self'].env.unwrapped.envs[0]
+
+        if env.done:
+            self._ep_rew.append(self._last_total_reward)
+            #            self._ep_rew.append(env.total_reward)
+            if len(self._ep_rew) % 10 == 0:
+                self._mean_10_ep = np.mean(self._ep_rew[-11:-1])
+        self._last_total_reward = env.total_reward
+
+        #rew = self.locals['self'].episode_reward[0]
         # if (self.num_timesteps + 1) % self._save_interval == 0:
-        if (rew > self._best_rew):
+        #if (rew > self._best_rew):
             # Evaluate policy training performance
 
             # episode_rewards, episode_lengths = evaluate_policy(self.model, self.eval_env,
@@ -193,19 +205,19 @@ class CheckEvalCallback(BaseCallback):
 
             # print(self.num_timesteps + 1, 'timesteps')
             # print("Best mean reward: {:.2f} - Last mean reward: {:.2f}".format(self._best_mean_reward, mean_reward))
-            print("Best  reward: {:.2f} - Last best reward: {:.2f}".format(self._best_rew, rew))
-            # New best model, save the agent
-            # if mean_reward > self._best_mean_reward:
-            #     self._best_mean_reward = mean_reward
-            #     print("Saving new best model")
-            #     self.model.save(self._best_model_path + '_rew_' + str(np.round(self._best_mean_reward, 2)))
-            self._best_rew = rew
-            print("Saving new best model")
-            self.model.save(self._best_model_path + '_rew_' + str(np.round(self._best_rew, 2)))
+            #print("Best  reward: {:.2f} - Last best reward: {:.2f}".format(self._best_rew, rew))
+        #New best model, save the agent
+        if self._mean_10_ep > self._best_mean_reward:
+            print("Saving new best model:"+str(np.round(self._mean_10_ep, 2)) + " last best: " + str(np.round(self._best_mean_reward, 2)))
+            self._best_mean_reward = self._mean_10_ep
+            self.model.save(self._best_model_path + '_rew_' + str(np.round(self._best_mean_reward, 2)))
+            #self._best_rew = rew
+            #print("Saving new best model")
+            # self.model.save(self._best_model_path + '_rew_' + str(np.round(self._best_rew, 2)))
             path = self._last_model_path + '_' + str(time.localtime().tm_mday) + '_' + str(
-                time.localtime().tm_hour) + '_' + str(time.localtime().tm_min)
-            global BEST_MODELS_NUM
-            BEST_MODELS_NUM=BEST_MODELS_NUM+1
+                 time.localtime().tm_hour) + '_' + str(time.localtime().tm_min)
+            # global BEST_MODELS_NUM
+            # BEST_MODELS_NUM=BEST_MODELS_NUM+1
             self.model.save(path)
         return True
 
@@ -236,27 +248,58 @@ class TensorboardCallback(BaseCallback):
         self.is_tb_set = False
         super(TensorboardCallback, self).__init__(verbose)
 
+        self._ep_rew = []
+        self._mean_10_ep = -10
+        self._last_total_reward = -10
+
+
     def _on_step(self) -> bool:
         # Log additional tensor
+        # if not self.is_tb_set:
+        #     with self.model.graph.as_default():
+        #         tf.summary.scalar('episode_reward', tf.reduce_mean(self.model.episode_reward))
+        #         # tf.summary.scalar('episode_reward', tf.reduce_mean(self.model.episode_reward))
+        #         self.model.summary = tf.summary.merge_all()
+        #     self.is_tb_set = True
+        # # Log scalar value (here a random variable)
+        #
+        #
+        # global BEST_MODELS_NUM
+        # value = BEST_MODELS_NUM
+        #
+        #
+        # writer = self.locals['writer']
+
         if not self.is_tb_set:
             with self.model.graph.as_default():
-                tf.summary.scalar('value_target', tf.reduce_mean(self.model.value_target))
+                tf.summary.scalar('episode_reward', tf.reduce_mean(self.model.episode_reward))
                 self.model.summary = tf.summary.merge_all()
             self.is_tb_set = True
-        # Log scalar value (here a random variable)
-
-
-        global BEST_MODELS_NUM
-        value = BEST_MODELS_NUM
+            # Log scalar value (here a random variable)
 
         env = self.locals['self'].env.unwrapped.envs[0]
-        summary1 = tf.Summary(value=[tf.Summary.Value(tag='best_models', simple_value=value)])
-        summary2 = tf.Summary(value=[tf.Summary.Value(tag='last_rt', simple_value=env.last_rt)])
-        summary3 = tf.Summary(value=[tf.Summary.Value(tag='last_final_reward', simple_value=env.last_final_reward)])
-        self.locals['writer'].add_summary(summary1, self.num_timesteps)
-        self.locals['writer'].add_summary(summary2, self.num_timesteps)
-        self.locals['writer'].add_summary(summary3, self.num_timesteps)
+
+        if env.done:
+            self._ep_rew.append(self._last_total_reward)
+#            self._ep_rew.append(env.total_reward)
+            if len(self._ep_rew) % 10 == 0:
+                self._mean_10_ep = np.mean(self._ep_rew[-11:-1])
+        self._last_total_reward = env.total_reward
+        summary = tf.Summary(value=[tf.Summary.Value(tag='last_rt', simple_value=env.last_rt),
+                                    tf.Summary.Value(tag='last_final_reward', simple_value=env.last_final_reward),
+                                    tf.Summary.Value(tag='total_reward', simple_value=env.total_reward),
+                                    tf.Summary.Value(tag='mean_10_ep', simple_value=self._mean_10_ep)])
+        self.locals['writer'].add_summary(summary, self.num_timesteps)
         return True
+
+        # env = self.locals['self'].env.unwrapped.envs[0]
+        # summary1 = tf.Summary(value=[tf.Summary.Value(tag='best_models', simple_value=value)])
+        # summary2 = tf.Summary(value=[tf.Summary.Value(tag='last_rt', simple_value=env.last_rt)])
+        # summary3 = tf.Summary(value=[tf.Summary.Value(tag='last_final_reward', simple_value=env.last_final_reward)])
+        # self.locals['writer'].add_summary(summary1, self.num_timesteps)
+        # self.locals['writer'].add_summary(summary2, self.num_timesteps)
+        # self.locals['writer'].add_summary(summary3, self.num_timesteps)
+        # return True
 
 def data_saver(obs, act, rew, dones, ep_rew):
     user = os.getenv("HOME")
@@ -302,7 +345,7 @@ def build_model(algo, policy, env_name, log_dir, expert_dataset=None):
         policy_kwargs = dict(layers=[32, 32, 32], layer_norm=False)
 
         env = DummyVecEnv([lambda: gym.make(env_name)])
-        model = A2C(CnnMlpPolicy, env, verbose=2,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
+        model = A2C(CnnMlpPolicy, env, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
 
 
         # model = SAC(CnnMlpPolicy, env=env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
@@ -406,11 +449,39 @@ def train(algo, policy, pretrain, n_timesteps, log_dir, model_dir, env_name, mod
     # eval_callback = EvalCallback(env_name=env_name, best_model_save_path=model_dir,
     #                              log_path='./logs/', eval_freq=model_save_interval,
     #                              deterministic=True, render=False, callback_on_new_best=on_new_best_model_cb)
-    # tensorboard_callback = TensorboardCallback(verbose=2)
-    model.learn(total_timesteps=n_timesteps, callback=[custom_eval_callback])
+    tensorboard_callback = TensorboardCallback(verbose=1)
+    model.learn(total_timesteps=n_timesteps, callback=[custom_eval_callback, tensorboard_callback], tb_log_name="first_run_" + time.time().__str__())
     model.save(env_name)
 
-
+def train_loaded(algo, policy, load_path, n_timesteps, log_dir, model_dir, env_name, model_save_interval):
+    """
+    Train an agent
+    :param algo: (str)
+    :param policy: type of network (str)
+    :param load_path: model to load
+    :param n_timesteps: (int)
+    :param log_dir: (str)
+    :param model_dir: (str)
+    :param env: (gym env)
+    :param env_name: (str)
+    :return: None
+    """
+    #model = build_model(algo=algo, policy=policy, env_name=env_name, log_dir=log_dir, expert_dataset=None)
+    #env_name = env.spec.id
+    from stable_baselines.common.vec_env import DummyVecEnv
+    model = None
+    env = DummyVecEnv([lambda: gym.make(env_name)])
+    model= A2C.load(load_path, env=env)
+    #model.set_env(env)
+    # learn
+    print("learning model type", type(model))
+    custom_eval_callback = CheckEvalCallback(model_dir, verbose=2, save_interval=model_save_interval)
+    # eval_callback = EvalCallback(env_name=env_name, best_model_save_path=model_dir,
+    #                              log_path='./logs/', eval_freq=model_save_interval,
+    #                              deterministic=True, render=False, callback_on_new_best=on_new_best_model_cb)
+    tensorboard_callback = TensorboardCallback(verbose=1)
+    model.learn(total_timesteps=n_timesteps, callback=[custom_eval_callback, tensorboard_callback], tb_log_name="from_learned_model_" + time.time().__str__())
+    model.save(env_name)
 
 
 
@@ -452,10 +523,17 @@ def main(args):
     env_name = args.mission + '-' + args.env_ver
     env = gym.make(env_name)  # .unwrapped  <= NEEDED?
     print('gym env created', env_name, env)
+
     save_dir, model_dir, log_dir = CreateLogAndModelDirs(args)
 
     if args.job == 'train':
-        train(args.algo, args.policy, args.pretrain, args.n_timesteps, log_dir, model_dir, env_name, args.save_interval)
+        model_path = args.load_model
+        # If there is a path in load model, then load before training
+        if model_path != "" and os.path.exists(model_path):
+            train_loaded(args.algo, args.policy, model_path, args.n_timesteps, log_dir, model_dir, env_name,
+                         args.save_interval)
+        else:
+            train(args.algo, args.policy, args.pretrain, args.n_timesteps, log_dir, model_dir, env_name, args.save_interval)
     elif args.job == 'record':
         record(env)
     elif args.job == 'play':
@@ -490,6 +568,7 @@ def add_arguments(parser):
     parser.add_argument('--verbose', help='Verbose mode (0: no output, 1: INFO)', default=1, type=int)
     parser.add_argument('--pretrain', help='Evaluate pretrain phase', default=False, type=bool)
     parser.add_argument('--load-expert-dataset', help='Load Expert Dataset', default=False, type=bool)
+    parser.add_argument('--load-model', help='Starting model to load', default="", type=str)
     # parser.add_argument('-params', '--hyperparams', type=str, nargs='+', action=StoreDict,
     #                     help='Overwrite hyperparameter (e.g. learning_rate:0.01 train_freq:10)')
     # parser.add_argument('-uuid', '--uuid', action='store_true', default=False,
