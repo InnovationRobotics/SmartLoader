@@ -44,16 +44,16 @@ def quatToEuler(quat):
 class SmartLoader:
 
     # CALLBACKS
-    def VehiclePositionCB(self,pose):
-        x = pose.pose.position.x
-        y = pose.pose.position.y
-        z = pose.pose.position.z
+    def VehiclePositionCB(self,stamped_pose):
+        x = stamped_pose.pose.pose.position.x
+        y = stamped_pose.pose.pose.position.y
+        z = stamped_pose.pose.pose.position.z
         self.world_state['VehiclePos'] = np.array([x,y,z])
 
-        qx = pose.pose.orientation.x
-        qy = pose.pose.orientation.y
-        qz = pose.pose.orientation.z
-        qw = pose.pose.orientation.w
+        qx = stamped_pose.pose.pose.orientation.x
+        qy = stamped_pose.pose.pose.orientation.y
+        qz = stamped_pose.pose.pose.orientation.z
+        qw = stamped_pose.pose.pose.orientation.w
         self.world_state['VehicleOrien'] = np.array([qx,qy,qz,qw])
 
     def ShovelPositionCB(self,stamped_pose):
@@ -70,11 +70,23 @@ class SmartLoader:
 
     def ArmHeightCB(self, data):
         height = data.data
-        self.world_state['ArmHeight'] = np.array([height])
+        cur_height = np.array([height])
+        # self.world_state['ArmHeight'] = np.array([height])
+        self.blade_lift_hist.append(cur_height)
+        if len(self.blade_lift_hist) > 5:
+            self.blade_lift_hist.pop(0)
+        self.world_state['ArmHeight'] = np.mean(self.blade_lift_hist)
+
 
     def ArmShortHeightCB(self, data):
         height = data.data
-        self.world_state['BladePitch'] = np.array([height])
+        cur_pitch = np.array([height])
+        # self.world_state['BladePitch'] = np.array([height])
+        self.blade_pitch_hist.append(cur_pitch)
+        if len(self.blade_pitch_hist) > 5:
+            self.blade_pitch_hist.pop(0)
+        self.world_state['BladePitch'] = np.mean(self.blade_pitch_hist)
+
 
     def BladeImuCB(self, imu):
         qx = imu.orientation.x
@@ -122,23 +134,22 @@ class SmartLoader:
         #     self.heatmap_arr=[]
 
     def GridMapCB(self, data):
-        raw_map = data
-        hmap = np.array(data.data[1].data).reshape([int(data.info.length_y/data.info.resolution),int(data.info.length_x/data.info.resolution)])
-        self.world_state['GridMap'] = hmap
-        # plt.imshow(hmap)
+        map_size = [int(data.info.length_y/data.info.resolution),int(data.info.length_x/data.info.resolution)]
+
+        hm_array = np.array(data.data[1].data)
+        clean_hm = np.copy(hm_array)
+
+        usb_cable = np.where(hm_array > 0.5)
+        for arr_cell in usb_cable[0]:
+            # clean_hm[arr_cell] = hm_array.min()
+            # clean_hm[arr_cell] = np.mean(hm_array)
+            clean_hm[arr_cell] = hm_array[max(usb_cable[0])+2]
+
+        self.heat_map = np.array(clean_hm).reshape(map_size)[:,:]
+        # plt.imshow(self.heat_map)
         # plt.show(block=False)
         # plt.pause(0.01)
         # plt.close
-        # print('BearkPointAssist')
-        ### based on velodyne FOV [330:25]
-        # np_pc = ros_numpy.numpify(data)
-        # xyz_array = ros_numpy.point_cloud2.get_xyz_points(np_pc)
-        # self.heat_map = HeatMap(xyz_array)[0]
-        # self.heatmap_arr.append(self.heat_map)
-        # if len(self.heatmap_arr) > 3:
-        #     # self.upd_heat_map = self.heatmap_arr[-1]
-        #     self.upd_heat_map = np.mean(self.heatmap_arr, axis=0)
-        #     self.heatmap_arr=[]
 
     def do_action(self, agent_action):
 
@@ -185,105 +196,93 @@ class SmartLoader:
         self.heatmap_arr = []
         self.upd_heat_map = []
 
+        self.blade_pitch_hist = []
+        self.blade_lift_hist = []
+
         self.obs = {}
+        self.keys = ['ArmHeight', 'BladePitch', 'VehiclePos', 'ShovelPos']
 
         # For time step
         self.current_time = time.time()
         self.last_time = self.current_time
         self.time_step = []
         self.last_obs = np.array([])
-        self.TIME_STEP = 0.05
+        self.TIME_STEP = 0.01
 
         ## ROS messages
         rospy.init_node('slagent', anonymous=False)
         self.rate = rospy.Rate(10)  # 10hz
 
         # Define Subscribers
-        self.vehiclePositionSub = rospy.Subscriber('mavros/local_position/pose', PoseStamped, self.VehiclePositionCB)
-        # self.vehiclePositionSub = rospy.Subscriber('sl_pose', PoseWithCovarianceStamped, self.VehiclePositionCB)
-
+        self.vehiclePositionSub = rospy.Subscriber('sl_pose', PoseWithCovarianceStamped, self.VehiclePositionCB)
         self.shovelPositionSub = rospy.Subscriber('shovel_pose', PoseWithCovarianceStamped, self.ShovelPositionCB)
-        # self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
-        # self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
+        self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
+        self.shortHeightSub = rospy.Subscriber('arm/shortHeight', Int32, self.ArmShortHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
         self.PointCloudSub = rospy.Subscriber('/velodyne_points', PointCloud2, self.PointCloudCB)
-        # self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
+        self.vehicleImu = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
         self.mapSub = rospy.Subscriber('/sl_map', GridMap, self.GridMapCB)
 
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
 
-    def reset(self):
+    def get_obs(self):
 
         # wait for topics to update
-        time.sleep(1)
+        while True: # wait for all topics to arrive
+            if all(key in self.world_state for key in self.keys) and (len(self.heat_map) > 0):
+                break
 
         # current state
-        h_map = self.world_state['GridMap']
-        # arm_lift = self.world_state['ArmHeight'].item(0)
-        # arm_pitch = self.world_state['BladePitch'].item(0)
+        h_map = self.heat_map
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
-        # vehicle_orien = self.world_state['VehicleOrienIMU']
+        z_vehicle = self.world_state['VehiclePos'].item(2)
+        # vehicle_orien = quatToEuler(np.around (self.world_state['VehicleOrienIMU'],2))[2]
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
+
         # blade_orien = self.world_state['BladeOrien']
 
-        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle,
-               'x_blade':x_blade, 'y_blade':y_blade}
-        # obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
-        #        'x_blade':x_blade, 'y_blade':y_blade, 'blade_orien':blade_orien}
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'z_vehicle': z_vehicle,
+               'x_blade':x_blade, 'y_blade':y_blade, 'lift': arm_lift, 'pitch': arm_pitch}
 
         return obs
 
 
     def step(self, action):
 
-        ###### heat map arr disp
-        #     rows, cols = 1, 10
-        #     fig, splot = plt.subplots(rows, cols)
-        #
-        #     for subp in range(cols):
-        #         # time.sleep(0.1)
-        #         avg_heatmap = np.mean(self.heatmap_arr[(subp*4):((subp+1)*4)], axis=0)
-        #         splot[subp].imshow(self.heatmap_arr[subp*4],aspect=0.3)
-        #     plt.show(block=False)
-        #     plt.pause(6)
-        #     # time.sleep(0.1)
-        #     plt.close()
-        #     self.heatmap_arr = []
-
-        # for even time steps
-        self.current_time = time.time()
-        time_step = self.current_time - self.last_time
-
-        if time_step < self.TIME_STEP:
-            time.sleep(self.TIME_STEP - time_step)
-            self.current_time = time.time()
-            time_step = self.current_time - self.last_time
-
-        self.time_step.append(time_step)
-        self.last_time = self.current_time
+        # wait for topics to update
+        start_time = time.time()
+        # while True: # wait for all topics to arrive
+        #     if all(key in self.world_state for key in self.keys) and self.heat_map:
+        #         break
+        # print(time.time() - start_time)
 
         # current state
-        h_map = self.world_state['GridMap']
- #       h_map = self.heat_map
-
-        # arm_lift = self.world_state['ArmHeight'].item(0)
-        # arm_pitch = self.world_state['BladePitch'].item(0)
+        h_map = self.heat_map
+        arm_lift = self.world_state['ArmHeight'].item(0)
+        arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
-        # vehicle_orien = self.world_state['VehicleOrienIMU']
+        z_vehicle = self.world_state['VehiclePos'].item(2)
+        # vehicle_orien = quatToEuler(self.world_state['VehicleOrienIMU'])[2]
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
+
         # blade_orien = self.world_state['BladeOrien']
 
-        # obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'vehicle_orien':vehicle_orien,
-        #        'x_blade':x_blade, 'y_blade':y_blade}
-        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'x_blade':x_blade, 'y_blade':y_blade}
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'z_vehicle': z_vehicle,
+               'x_blade':x_blade, 'y_blade':y_blade, 'lift': arm_lift, 'pitch': arm_pitch}
 
-        # if action:
+
+        step_time = time.time() - start_time
+        if step_time < self.TIME_STEP:
+            time.sleep(self.TIME_STEP - step_time)
+
         self.do_action(action)
 
         return obs
