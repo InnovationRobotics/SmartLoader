@@ -16,6 +16,8 @@ import gym_SmartLoader.envs
 
 
 from stable_baselines.common.policies import ActorCriticPolicy, register_policy, nature_cnn
+from stable_baselines.sac.policies import SACPolicy, gaussian_entropy, gaussian_likelihood, apply_squashing_func, mlp, nature_cnn
+
 
 # for custom callbacks stable-baselines should be upgraded using -
 # pip3 install stable-baselines[mpi] --upgrade
@@ -41,6 +43,164 @@ POLICIES = ['MlpPolicy', 'CnnPolicy','CnnMlpPolicy']
 
 BEST_MODELS_NUM = 0
 
+
+EPS = 1e-6  # Avoid NaN (prevents division by zero or log of zero)
+# CAP the standard deviation of the actor
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
+
+
+def CnnMlpFeatureExtractor(obs, image_height = 291, image_width = 150):
+    image_size = image_height * image_width
+    assert len(obs.shape) == 2 and obs.shape[1] > image_size
+    feature_num = obs.shape[1] - image_size
+    grid_map_flat = tf.slice(obs, [0, 0], [1, image_size])
+    grid_map = tf.reshape(grid_map_flat, [1, image_height, image_width, 1])
+    extracted_features = nature_cnn(grid_map)
+    extracted_features = tf.layers.flatten(extracted_features)
+    # extracted_features = tf.Print(extracted_features,[tf.shape(extracted_features)], 'extracted features shape : ')
+    features = tf.slice(obs, [0, image_size], [1, feature_num])
+    # features = tf.Print(features, [tf.shape(features)], "features shape: " )
+    return tf.concat([extracted_features, features], 1)
+
+
+
+class CustomSacCnnMlpPolicy(SACPolicy):
+    """
+    Policy object that implements a DDPG-like actor critic, using a feed forward neural network.
+
+    :param sess: (TensorFlow session) The current TensorFlow session
+    :param ob_space: (Gym Space) The observation space of the environment
+    :param ac_space: (Gym Space) The action space of the environment
+    :param n_env: (int) The number of environments to run
+    :param n_steps: (int) The number of steps to run for each environment
+    :param n_batch: (int) The number of batch to run (n_envs * n_steps)
+    :param reuse: (bool) If the policy is reusable or not
+    :param layers: ([int]) The size of the Neural network for the policy (if None, default to [64, 64])
+    :param cnn_extractor: (function (TensorFlow Tensor, ``**kwargs``): (TensorFlow Tensor)) the CNN feature extraction
+    :param feature_extraction: (str) The feature extraction type ("cnn" or "mlp")
+    :param layer_norm: (bool) enable layer normalisation
+    :param reg_weight: (float) Regularization loss weight for the policy parameters
+    :param act_fun: (tf.func) the activation function to use in the neural network.
+    :param kwargs: (dict) Extra keyword arguments for the nature CNN feature extraction
+    """
+
+    def __init__(self, sess, ob_space, ac_space, n_env=1, n_steps=1, n_batch=None, reuse=False, layers=None,
+                 cnn_extractor=nature_cnn, feature_extraction="cnn", reg_weight=0.0,
+                 layer_norm=False, act_fun=tf.nn.relu, **kwargs):
+        super(CustomSacCnnMlpPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch,
+                                                reuse=reuse, scale=(feature_extraction == "cnn"))
+
+        self._kwargs_check(feature_extraction, kwargs)
+        self.layer_norm = layer_norm
+        self.feature_extraction = feature_extraction
+        self.cnn_kwargs = kwargs
+        self.cnn_extractor = cnn_extractor
+        self.reuse = reuse
+        if layers is None:
+            layers = [64, 64]
+        self.layers = layers
+        self.reg_loss = None
+        self.reg_weight = reg_weight
+        self.entropy = None
+
+        assert len(layers) >= 1, "Error: must have at least one hidden layer for the policy."
+
+        self.activ_fn = act_fun
+
+
+
+    def make_actor(self, obs=None, reuse=False, scope="pi"):
+        if obs is None:
+            obs = self.processed_obs
+
+        with tf.variable_scope(scope, reuse=reuse):
+            # if self.feature_extraction == "cnn":
+            #     pi_h = self.cnn_extractor(obs, **self.cnn_kwargs)
+            # else:
+            #     pi_h = tf.layers.flatten(obs)
+
+            pi_h = CnnMlpFeatureExtractor(obs)
+
+            pi_h = mlp(pi_h, self.layers, self.activ_fn, layer_norm=self.layer_norm)
+
+            self.act_mu = mu_ = tf.layers.dense(pi_h, self.ac_space.shape[0], activation=None)
+            # Important difference with SAC and other algo such as PPO:
+            # the std depends on the state, so we cannot use stable_baselines.common.distribution
+            log_std = tf.layers.dense(pi_h, self.ac_space.shape[0], activation=None)
+
+        # Regularize policy output (not used for now)
+        # reg_loss = self.reg_weight * 0.5 * tf.reduce_mean(log_std ** 2)
+        # reg_loss += self.reg_weight * 0.5 * tf.reduce_mean(mu ** 2)
+        # self.reg_loss = reg_loss
+
+        # OpenAI Variation to cap the standard deviation
+        # activation = tf.tanh # for log_std
+        # log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (log_std + 1)
+        # Original Implementation
+        log_std = tf.clip_by_value(log_std, LOG_STD_MIN, LOG_STD_MAX)
+
+        self.std = std = tf.exp(log_std)
+        # Reparameterization trick
+        pi_ = mu_ + tf.random_normal(tf.shape(mu_)) * std
+        logp_pi = gaussian_likelihood(pi_, mu_, log_std)
+        self.entropy = gaussian_entropy(log_std)
+        # MISSING: reg params for log and mu
+        # Apply squashing and account for it in the probability
+        deterministic_policy, policy, logp_pi = apply_squashing_func(mu_, pi_, logp_pi)
+        self.policy = policy
+        self.deterministic_policy = deterministic_policy
+
+        return deterministic_policy, policy, logp_pi
+
+    def make_critics(self, obs=None, action=None, reuse=False, scope="values_fn",
+                     create_vf=True, create_qf=True):
+        if obs is None:
+            obs = self.processed_obs
+
+        with tf.variable_scope(scope, reuse=reuse):
+            # if self.feature_extraction == "cnn":
+            #     critics_h = self.cnn_extractor(obs, **self.cnn_kwargs)
+            # else:
+            #     critics_h = tf.layers.flatten(obs)
+            critics_h = CnnMlpFeatureExtractor(obs)
+            if create_vf:
+                # Value function
+                with tf.variable_scope('vf', reuse=reuse):
+                    vf_h = mlp(critics_h, self.layers, self.activ_fn, layer_norm=self.layer_norm)
+                    value_fn = tf.layers.dense(vf_h, 1, name="vf")
+                self.value_fn = value_fn
+
+            # if create_qf and action.get_shape().as_list()[0] == critics_h.get_shape().as_list()[0]:
+            if create_qf:
+
+                # action = tf.Print(action, [tf.shape(action)], "action shape: ")
+                # critics_h = tf.Print(critics_h, [tf.shape(critics_h)], "critics_h shape: ")
+
+                # Concatenate preprocessed state and action
+                qf_h = tf.concat([critics_h, action], axis=-1)
+
+                # Double Q values to reduce overestimation
+                with tf.variable_scope('qf1', reuse=reuse):
+                    qf1_h = mlp(qf_h, self.layers, self.activ_fn, layer_norm=self.layer_norm)
+                    qf1 = tf.layers.dense(qf1_h, 1, name="qf1")
+
+                with tf.variable_scope('qf2', reuse=reuse):
+                    qf2_h = mlp(qf_h, self.layers, self.activ_fn, layer_norm=self.layer_norm)
+                    qf2 = tf.layers.dense(qf2_h, 1, name="qf2")
+
+                self.qf1 = qf1
+                self.qf2 = qf2
+
+        return self.qf1, self.qf2, self.value_fn
+
+    def step(self, obs, state=None, mask=None, deterministic=False):
+        if deterministic:
+            return self.sess.run(self.deterministic_policy, {self.obs_ph: obs})
+        return self.sess.run(self.policy, {self.obs_ph: obs})
+
+    def proba_step(self, obs, state=None, mask=None):
+        return self.sess.run([self.act_mu, self.std], {self.obs_ph: obs})
 
 
 
@@ -345,16 +505,16 @@ def build_model(algo, policy, env_name, log_dir, expert_dataset=None):
         policy_kwargs = dict(layers=[32, 32, 32], layer_norm=False)
 
         env = DummyVecEnv([lambda: gym.make(env_name)])
-        model = A2C(CnnMlpPolicy, env, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
+        # model = A2C(CnnMlpPolicy, env, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
 
 
-        # model = SAC(CnnMlpPolicy, env=env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
-        #             learning_starts=1000, train_freq=1, batch_size=64,
-        #             tau=0.01, ent_coef='auto', target_update_interval=1,
-        #             gradient_steps=1, target_entropy='auto', action_noise=None,
-        #             random_exploration=0.0, verbose=2, tensorboard_log=log_dir,
-        #             _init_setup_model=True, full_tensorboard_log=True,
-        #             seed=None, n_cpu_tf_sess=None)
+        model = SAC(CustomSacCnnMlpPolicy, env=env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
+                    learning_starts=1000, train_freq=50, batch_size=1,
+                    tau=0.01, ent_coef='auto', target_update_interval=1,
+                    gradient_steps=1, target_entropy='auto', action_noise=None,
+                    random_exploration=0.0, verbose=1, tensorboard_log=log_dir,
+                    _init_setup_model=True, full_tensorboard_log=True,
+                    seed=None, n_cpu_tf_sess=None)
 
     elif algo == 'ppo1':
         model = PPO1('MlpPolicy', env_name, gamma=0.99, timesteps_per_actorbatch=256, clip_param=0.2,
