@@ -114,9 +114,9 @@ class PushAlgoryx(BaseEnv):
         #     self.blade_down()
 
         # get observation from simulation
-        for _ in range(self.hist_size):
-            self._obs.append(self.current_obs())
-            # self.obs.append(self.current_obs())
+        # for _ in range(self.hist_size):
+        #     self._obs.append(self.current_obs())
+        #     # self.obs.append(self.current_obs())
 
         # Since we are observing only grid_map
         # initial distance vehicle ref
@@ -179,7 +179,7 @@ class PushAlgoryx(BaseEnv):
         arm_pitch_interval = arm_pitch_max - arm_pitch_min
         normalized_pitch = (arm_pitch_max - arm_pitch) / arm_pitch_interval
         normalized_lift = (arm_lift_max - arm_lift) / arm_lift_interval
-        mse = np.mean(np.square([normalized_lift,normalized_pitch, normalized_dist]))
+        mse = np.mean(np.square([normalized_lift,normalized_pitch, normalized_dist])).squeeze()
         return -mse/PushAlgoryx.MAX_STEPS
 
     def step(self, action):
@@ -209,7 +209,10 @@ class PushAlgoryx(BaseEnv):
 #           print('initial distance = ', self.init_dis, ' total reward = ', self.total_reward)
 
         info = { "action": action, "reward": self.total_reward, "step": self.steps,
-                "reset reason": reset}
+                "reset reason": reset, "r_t": r_t, "final_reward": final_reward}
+
+        self.last_rt = r_t
+        self.last_final_reward = final_reward
 
         # return np.array(self._obs['h_map']), step_reward, done, info
         return np.array(np.hstack(self._obs.values())), step_reward, done, info
