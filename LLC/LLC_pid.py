@@ -58,7 +58,7 @@ class PushPid:
         self.lift_pid.SetPoint = des[2]  # desired lift
         self.pitch_pid.SetPoint = des[3]  # desired pitch
 
-        lift_error = abs(des[2] - current_lift)
+        # lift_error = abs(des[2] - current_lift)
 
         # lift_speed_factor = np.clip(5/abs(des[2] - current_lift), 0.35, 1)
         # print(lift_speed_factor)
@@ -97,23 +97,26 @@ class PushPid:
 
 
 class DumpPid:
-    def __init__(self):
+    def __init__(self, des):
         self.TIME_STEP = 10e-6  # 10 mili
 
         # Define PIDs
         # armHeight = lift = [down:145 - up:265]
-        self.lift_pid = PID(P=-0.0005, I=0.0001, D=0.00001, saturation=0.8)
-        self.lift_pid.SetPoint = 220.
+        self.lift_pid = PID(P=0.00055, I=0.00015, D=0.00001, saturation=0.8)
+        # self.lift_pid.SetPoint = 220.
         self.lift_pid.setSampleTime(self.TIME_STEP)
 
         # armShortHeight = pitch = [up:70 - down:265]
-        self.pitch_pid = PID(P=-0.006, I=0, D=0.0002, saturation=0.5)
-        self.pitch_pid.SetPoint = 250.
+        self.pitch_pid = PID(P=-0.003, I=0, D=0.0005, saturation=0.5)
+        # self.pitch_pid.SetPoint = 250.
         self.pitch_pid.setSampleTime(self.TIME_STEP)
+
+        # des = [x_blade, y_blade, lift, pitch]
+        self.lift_pid.SetPoint = des[2]  # desired lift
+        self.pitch_pid.SetPoint = des[3]  # desired pitch
 
 
     def step(self, obs):
-        # obs = {h_map, x_blade, y_blade, blade_orien, lift, pitch, x_vehicle, y_vehicle, vehicle_orien}
         current_lift = obs['lift']
         current_pitch = obs['pitch']
 
@@ -130,30 +133,105 @@ class DumpPid:
 
         return action
 
+
+class DriveBackAndLowerBladePid:
+    def __init__(self, des):
+        self.TIME_STEP = 10e-6  # 10 mili
+
+        # Define PIDs
+        # speed PID
+        self.speed_pid = PID(P=1.5, I=0.1, D=0.1, saturation=0.8)
+        self.speed_pid.setSampleTime(self.TIME_STEP)
+
+        # armHeight = lift = [down:145 - up:265]
+        self.lift_pid = PID(P=0.0005, I=0.00015, D=0.00001, saturation=0.8)
+        self.lift_pid.setSampleTime(self.TIME_STEP)
+
+        # armShortHeight = pitch = [up:70 - down:265]
+        self.pitch_pid = PID(P=-0.003, I=0, D=0.0005, saturation=0.5)
+        self.pitch_pid.setSampleTime(self.TIME_STEP)
+
+        # des = [x_blade, y_blade, lift, pitch]
+        self.lift_pid.SetPoint = des[2]  # desired lift
+        self.pitch_pid.SetPoint = des[3]  # desired pitch
+
+
+    def step(self, obs, des, steer=True):
+        current_lift = obs['lift']
+        current_pitch = obs['pitch']
+
+        # speed error: x_des - x_current
+        x_des, y_des = des[0], des[1]
+        current_speed = obs['x_vehicle']
+        self.speed_pid.SetPoint = x_des
+
+        # pid update
+        lift_action = self.lift_pid.update(current_lift)
+        pitch_action = self.pitch_pid.update(current_pitch)
+
+        # if got to des pos, stop driving but continue blade movement
+        if obs['x_vehicle'] <= x_des:
+            speed_action = 0
+        else:
+            speed_action = self.speed_pid.update(current_speed)
+
+        # do action
+        action = np.array([0, speed_action, pitch_action, lift_action])
+
+        # save data
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
+        self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
+        self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+
+        return action
+
+
 class DriveBackPid:
     def __init__(self):
         self.TIME_STEP = 10e-6  # 10 mili
 
         # Define PIDs
-        # steer PID
-        # self.steer_pid = PID(P=0.02, I=0, D=0, saturation=0.2)
-        # self.steer_pid.setSampleTime(self.TIME_STEP)
-
         # speed PID
-        self.speed_pid = PID(P=1, I=0.1, D=0.1, saturation=0.5)
+        self.speed_pid = PID(P=1.5, I=0.1, D=0.1, saturation=0.8)
         self.speed_pid.setSampleTime(self.TIME_STEP)
-
-        # armHeight = lift = [down:145 - up:265]
-        self.lift_pid = PID(P=0.00055, I=0.00015, D=0.00001, saturation=0.8)
-        self.lift_pid.setSampleTime(self.TIME_STEP)
-
-        # armShortHeight = pitch = [up:70 - down:265]
-        self.pitch_pid = PID(P=-0.0065, I=0, D=0.0002, saturation=0.5)
-        self.pitch_pid.setSampleTime(self.TIME_STEP)
 
 
     def step(self, obs, des, steer=True):
-        # obs = {h_map, x_blade, y_blade, blade_orien, lift, pitch, x_vehicle, y_vehicle, vehicle_orien}
+        # speed error: x_des - x_current
+        x_des, y_des = des[0], des[1]
+        current_speed = obs['x_vehicle']
+        self.speed_pid.SetPoint = x_des
+
+        speed_action = self.speed_pid.update(current_speed)
+
+        # do action
+        action = np.array([0, speed_action, 0, 0])
+
+        # save data
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
+
+        return action
+
+
+class LoadPid:
+    def __init__(self):
+        self.TIME_STEP = 10e-6  # 10 mili
+
+        # Define PIDs
+        # armHeight = lift = [down:145 - up:265]
+        self.lift_pid = PID(P=0.0004, I=0.00015, D=0.00001, saturation=0.8)
+        self.lift_pid.setSampleTime(self.TIME_STEP)
+
+        # armShortHeight = pitch = [up:70 - down:265]
+        self.pitch_pid = PID(P=-0.006, I=0, D=0.0002, saturation=0.5)
+        self.pitch_pid.setSampleTime(self.TIME_STEP)
+
+        # speed PID
+        self.speed_pid = PID(P=1, I=0.1, D=0.1, saturation=0.6)
+        self.speed_pid.setSampleTime(self.TIME_STEP)
+
+
+    def step(self, obs, des):
         current_lift = obs['lift']
         current_pitch = obs['pitch']
 
@@ -166,26 +244,22 @@ class DriveBackPid:
         current_speed = obs['x_blade']
         self.speed_pid.SetPoint = x_des
 
-        # steer error: angle between desired and current location - current blade orientation
-        # self.steer_pid.SetPoint = np.math.degrees(np.math.atan2(obs['y_vehicle']-y_des, obs['x_vehicle']-x_des))
-        # current_steer = np.math.degrees(np.math.atan2(obs['y_blade']-obs['y_vehicle'], obs['x_blade']-obs['x_vehicle']))
-
-        # print('current = ', current_steer, 'desired = ', self.steer_pid.SetPoint)
-
         # pid update
-        # steer_action = self.steer_pid.update(current_steer)
-        speed_action = self.speed_pid.update(current_speed)
         lift_action = self.lift_pid.update(current_lift)
         pitch_action = self.pitch_pid.update(current_pitch)
+        speed_action = self.speed_pid.update(current_speed)
 
         # do action
-        action = np.array([0, speed_action, pitch_action, lift_action])
+        if obs['x_blade'] < 1.5:
+            action = np.array([0, speed_action, 0, 0])
+        else:
+            action = np.array([0, speed_action, pitch_action, lift_action])
 
         # save data
-        # self.steer_pid.save_data(current_steer, steer_action, self.steer_pid.SetPoint)
-        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
         self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
         self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
+
 
         return action
 
@@ -222,11 +296,11 @@ class PID:
         self.int_error = 0.0
         self.windup_guard = 20.0
 
-    def update(self, feedback_value, clipping_factor=1., current_time=None):
+    def update(self, feedback_value, current_time=None):
         """Calculates PID value for given reference feedback
             u(t) = K_p e(t) + K_i \int_{0}^{t} e(t)dt + K_d {de}/{dt}
         """
-        error = clipping_factor*(self.SetPoint - feedback_value)
+        error = self.SetPoint - feedback_value
 
         self.current_time = current_time if current_time is not None else time.time()
         delta_time = self.current_time - self.last_time
@@ -254,24 +328,6 @@ class PID:
             # saturate output between [-saturation, saturation]t
             output = np.clip(output, -self.saturation, self.saturation)
 
-            # if output > self.saturation:
-            #     output = self.saturation
-            # elif output < -self.saturation:
-            #     output = -self.saturation
-
-            # DEAD ZONE - saturation between [-1, -0.4] and [0.4, 1]
-            # dead_zone = 0.3
-            # if output > 0:
-            #     if output > 1:
-            #         output = 1
-            #     elif output < dead_zone:
-            #         output = dead_zone
-            # elif output < 0:
-            #     if output < -1:
-            #         output = -1
-            #     elif output > -dead_zone:
-            #         output = -dead_zone
-
             return output
 
         else:
@@ -297,20 +353,12 @@ class PID:
         ax_state.set_title(stateName)
         ax_action.set_title(stateName + ' action')
 
-        # plot set points
-        # for const set point
-        # ax_lift.plot(x, np.array(x.size * [self.lift_pid.SetPoint]))
-        # ax_pitch.plot(x, np.array(x.size *[self.pitch_pid.SetPoint]))
         # plot data
         ax_state.plot(x, self._state, color='blue')
         ax_action.plot(x, self._action, color='blue')
         # plot set points
         ax_state.plot(x, self._setPoint, color='red')
 
-
         # save
         fig.savefig('/home/sload/git/SmartLoader/LLC/plots/' + fileName)
         print('figure saved!')
-
-    # def get_action(self):
-    #     return self._action[-1]
