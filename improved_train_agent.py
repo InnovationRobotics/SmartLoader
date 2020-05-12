@@ -471,7 +471,7 @@ def train_loaded(algo, policy, load_path, n_timesteps, log_dir, model_dir, env_n
     from stable_baselines.common.vec_env import DummyVecEnv
     model = None
     env = DummyVecEnv([lambda: gym.make(env_name)])
-    model= A2C.load(load_path, env=env)
+    model= A2C.load(load_path, env=env, policy=CnnMlpPolicy, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
     #model.set_env(env)
     # learn
     print("learning model type", type(model))
