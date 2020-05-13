@@ -127,7 +127,6 @@ def desired_config(obs, x_model, lift_pitch_model):
     L_P_des = lift_pitch_model.predict(Lift_Pitch_hmap)[0]
     x_deses = x_model.predict(Thrust_hmap)[0] * 3
 
-
     lifts = L_P_des[[np.arange(0,20,2)]] * 50 + 150
     pitches = L_P_des[[np.arange(1,20,2)]] * 230 + 50
     lift_des = lifts[-1]-4
@@ -170,8 +169,11 @@ if __name__ == '__main__':
     obs = env.get_obs()
 
     # des_sample_time = 0.1  # 10 Hz
-    x_model = load_model('/home/sload/Downloads/new_test_all_recordings_x_model_10_pred')
-    lift_pitch_model = load_model('/home/sload/Downloads/new_test_new_recordings_LP_model_10_pred')
+    # x_model = load_model('/home/sload/Downloads/new_test_all_recordings_x_model_10_pred')
+    # lift_pitch_model = load_model('/home/sload/Downloads/new_test_new_recordings_LP_model_10_pred')
+
+    x_model = load_model('/home/sload/Downloads/lift_task_x_model_10_pred')
+    lift_pitch_model = load_model('/home/sload/Downloads/lift_task_LP_model_10_pred')
 
     push_pid = LLC_pid.PushPid()
 
@@ -181,6 +183,13 @@ if __name__ == '__main__':
     last_loc = obs['x_vehicle']
 
     # timing_test()
+
+    while True:
+        obs = env.get_obs()
+        des = desired_config(obs, x_model, lift_pitch_model)
+        print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+        # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
+
 
     for step in range(3):
 
@@ -233,13 +242,11 @@ if __name__ == '__main__':
         # plots
         push_pid.lift_pid.save_plot('lift push {}'.format(str(step)), 'lift')
         push_pid.pitch_pid.save_plot('pitch push {}'.format(str(step)), 'pitch')
-        # push_pid.steer_pid.save_plot('steer push {}'.format(str(step)), 'steer')
         push_pid.speed_pid.save_plot('speed push {}'.format(str(step)), 'speed')
 
         ##### drive backwards #####
-        back_pid = LLC_pid.DriveBackPid()
         des = [0.5, obs['y_vehicle'], 155, 125]
-        # back_pid.steer_pid.SetPoint = 0
+        back_pid = LLC_pid.DriveBackPid(des)
         while True:
             action = back_pid.step(obs, des)
             obs = env.step(action)
@@ -251,12 +258,11 @@ if __name__ == '__main__':
             Y_des.append(des[1])
 
             # stopping condition
-            if obs['x_vehicle'] <= 0.5:
+            if obs['lift'] <= des[2] and obs['pitch'] <= des[3]:
                 print('driving backwards mission done!')
                 break
 
         # plots
-        # back_pid.steer_pid.save_plot('steer back {}'.format(str(step)), 'steer')
         back_pid.speed_pid.save_plot('speed back {}'.format(str(step)), 'speed')
         back_pid.pitch_pid.save_plot('pitch back {}'.format(str(step)), 'pitch')
         back_pid.lift_pid.save_plot('lift back {}'.format(str(step)), 'lift')

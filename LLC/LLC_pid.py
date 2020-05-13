@@ -107,7 +107,7 @@ class DumpPid:
         self.lift_pid.setSampleTime(self.TIME_STEP)
 
         # armShortHeight = pitch = [up:70 - down:265]
-        self.pitch_pid = PID(P=-0.003, I=0, D=0.0005, saturation=0.5)
+        self.pitch_pid = PID(P=-0.0025, I=0, D=0.0005, saturation=0.5)
         # self.pitch_pid.SetPoint = 250.
         self.pitch_pid.setSampleTime(self.TIME_STEP)
 
@@ -231,7 +231,7 @@ class LoadPid:
         self.speed_pid.setSampleTime(self.TIME_STEP)
 
 
-    def step(self, obs, des):
+    def step(self, obs, des, x_pile):
         current_lift = obs['lift']
         current_pitch = obs['pitch']
 
@@ -250,7 +250,7 @@ class LoadPid:
         speed_action = self.speed_pid.update(current_speed)
 
         # do action
-        if obs['x_blade'] < 1.5:
+        if obs['x_blade'] < x_pile - 0.5:
             action = np.array([0, speed_action, 0, 0])
         else:
             action = np.array([0, speed_action, pitch_action, lift_action])

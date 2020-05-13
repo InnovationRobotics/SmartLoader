@@ -70,7 +70,7 @@ def desired_config(obs, x_model, lift_pitch_model):
 
     Lift_Pitch_hmap = map_clipper(norm_hmap, blade_pos, x_clip=50, x_offset=20, y_clip=30)
 
-    # show_map(Lift_Pitch_hmap)
+    show_map(Lift_Pitch_hmap)
 
     Thrust_hmap = map_clipper(norm_hmap, blade_pos, y_clip=30)
 
@@ -94,6 +94,18 @@ def desired_config(obs, x_model, lift_pitch_model):
     #     x_des = np.min(x_err[min_x_err]) + obs['x_blade']
 
     return [x_des, obs['y_blade'], lift_des, pitch_des]
+
+def pile_pos(obs):
+    h_map = obs['h_map']
+    # shovel_pos = [obs['x_blade'], obs['y_blade']]
+    blade_x_pos = int(obs['x_blade'] * 100)
+    blade_y_pos = int(obs['y_blade'] * 100)
+    clipped_map = h_map[blade_x_pos+20:, blade_y_pos-30:blade_y_pos+30]
+    # clipped_map = map_clipper(h_map, shovel_pos, x_clip=200, x_offset=20, y_clip=30)
+    x_ind = np.unravel_index(np.argmax(clipped_map, axis=None), clipped_map.shape)[0]
+    max_x_pos = (x_ind+blade_x_pos+20)/100
+    z_max = np.max(clipped_map)
+    return max_x_pos, z_max
 
 
 def quatToEuler(quat):
@@ -136,21 +148,6 @@ def plot_loc(x, y, x_des, y_des):
     print('figure saved!')
 
 
-# def find_pile(obs):
-#
-#     hmap = obs['h_map']
-#     blade_pos = [obs['x_blade'], obs['y_blade']]
-#
-#     norm_hmap = normalize_map(hmap)
-#
-#     map_clipper(norm_hmap, blade_pos, x_clip=50, x_offset=20, y_clip=30)
-#
-#
-#     pile = {'x_pile': 1.8, 'y_pile': 0.8, 'z_pile': 0.5}
-#
-#     return pile
-
-
 if __name__ == '__main__':
 
     env = SmartLoader()
@@ -162,14 +159,16 @@ if __name__ == '__main__':
     X, Y, X_des, Y_des = [], [], [], []
     steps = 0
 
-    # while True:
-    #     obs = env.get_obs()
-    #     des = desired_config(obs, x_model, lift_pitch_model)
-    #     # print('curr lift = ', obs['lift'], 'des lift = ', des[2])
-    #     # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
-    #     print('curr x = ', obs['x_blade'], 'des x = ', des[0])
+    while True:
+        obs = env.get_obs()
+        des = desired_config(obs, x_model, lift_pitch_model)
+        print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+        # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
+        # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
 
     for step in range(3):
+
+        x_pile, z_pile = pile_pos(obs)
 
         ##### load mission #####
         load_pid = LLC_pid.LoadPid()
@@ -179,8 +178,8 @@ if __name__ == '__main__':
 
         while True:
             des = desired_config(obs, x_model, lift_pitch_model)
-            # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
-            action = load_pid.step(obs, des)
+            # print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+            action = load_pid.step(obs, des, x_pile)
             obs = env.step(action)
 
             # save locations
@@ -201,7 +200,8 @@ if __name__ == '__main__':
             #     counter = 0
             #     last_loc = obs['x_vehicle']
 
-            if obs['x_blade'] >= 1.8 and obs['lift'] >= 190:
+            print('x pile = ', x_pile, 'x cur = ', obs['x_blade'], 'lift des = ', des[2])
+            if obs['x_blade'] >= x_pile - 0.1 and obs['z_blade'] - z_pile >= 0.35:  # obs['lift'] >= 190:
                 break
 
         print('Loading mission done!')
@@ -233,7 +233,7 @@ if __name__ == '__main__':
         dump_pid.pitch_pid.save_plot('pitch dump {}'.format(str(step)), 'pitch')
 
         ##### drive backwards #####
-        des = [obs['x_vehicle']-0.5, obs['y_vehicle'], 170, 140]
+        des = [obs['x_vehicle']-0.5, obs['y_vehicle'], 175, 140]
         back_pid = LLC_pid.DriveBackPid()
         back_and_lower_pid = LLC_pid.DriveBackAndLowerBladePid(des)
 
