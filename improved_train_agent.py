@@ -310,8 +310,8 @@ class CheckEvalCallback(BaseCallback):
         self._save_interval = save_interval
         self._best_rew = -np.inf
         self._ep_rew = []
-        self._mean_10_ep = -10
-        self._last_total_reward = -10
+        self._mean_10_ep = -2
+        self._last_total_reward = -2
 
     def _on_training_start(self) -> None:
         """
@@ -409,8 +409,8 @@ class TensorboardCallback(BaseCallback):
         super(TensorboardCallback, self).__init__(verbose)
 
         self._ep_rew = []
-        self._mean_10_ep = -10
-        self._last_total_reward = -10
+        self._mean_10_ep = -2
+        self._last_total_reward = -2
 
 
     def _on_step(self) -> bool:
@@ -509,7 +509,7 @@ def build_model(algo, policy, env_name, log_dir, expert_dataset=None):
 
 
         model = SAC(CustomSacCnnMlpPolicy, env=env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
-                    learning_starts=1000, train_freq=50, batch_size=1,
+                    learning_starts=1000, train_freq=10, batch_size=1,
                     tau=0.01, ent_coef='auto', target_update_interval=1,
                     gradient_steps=1, target_entropy='auto', action_noise=None,
                     random_exploration=0.0, verbose=1, tensorboard_log=log_dir,
@@ -631,7 +631,16 @@ def train_loaded(algo, policy, load_path, n_timesteps, log_dir, model_dir, env_n
     from stable_baselines.common.vec_env import DummyVecEnv
     model = None
     env = DummyVecEnv([lambda: gym.make(env_name)])
-    model= A2C.load(load_path, env=env, policy=CnnMlpPolicy, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
+    if algo == "sac":
+        model= SAC.load(load_path, env=env, policy=CustomSacCnnMlpPolicy, gamma=0.99, learning_rate=1e-4,  buffer_size=50000,
+                    learning_starts=1000, train_freq=10, batch_size=1,
+                    tau=0.01, ent_coef='auto', target_update_interval=1,
+                    gradient_steps=1, target_entropy='auto', action_noise=None,
+                    random_exploration=0.0, verbose=1, tensorboard_log=log_dir,
+                    _init_setup_model=True, full_tensorboard_log=True,
+                    seed=None, n_cpu_tf_sess=None)
+    else:
+        model= A2C.load(load_path, env=env, policy=CnnMlpPolicy, verbose=1,gamma=0.99, learning_rate=1e-4,  tensorboard_log=log_dir, _init_setup_model=True, full_tensorboard_log=True,seed=None, n_cpu_tf_sess=None)
     #model.set_env(env)
     # learn
     print("learning model type", type(model))

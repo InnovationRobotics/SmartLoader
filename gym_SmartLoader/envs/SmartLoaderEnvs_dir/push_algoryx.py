@@ -16,6 +16,8 @@ class PushAlgoryx(BaseEnv):
     MAX_STEPS = 200
     STEP_REWARD = 1 / MAX_STEPS
     FINAL_REWARD = 1.0
+    PITCH_RESET = 426
+    DESIRED_ARM_HEIGHT = 134
 
     def __init__(self):
         super(PushAlgoryx, self).__init__()
@@ -44,16 +46,16 @@ class PushAlgoryx(BaseEnv):
         self.action_space = spaces.Box(low=np.array([-1] * 4), high=np.array([1] * 4), dtype=np.float16)
         # spaces.Discrete(N_DISCRETE_ACTIONS)
         # Example for using image as input:
-        N_CHANNELS = 1
+        self.N_CHANNELS = 1
         self.MAP_SIZE_Y = 291  # 260
         self.MAP_SIZE_X = 150  # 160
         self.observation_space = spaces.Box(low=0, high=255,
                                             shape=(43657,), dtype=np.uint8)
 
         # self.observation_space = spaces.Box(low=0, high=255,
-        #                                     shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, N_CHANNELS), dtype=np.uint8)
+        #                                     shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, self.N_CHANNELS), dtype=np.uint8)
 
-        self.world_state['GridMap'] = np.zeros(shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, N_CHANNELS))
+        self.world_state['GridMap'] = np.zeros(shape=(self.MAP_SIZE_Y, self.MAP_SIZE_X, self.N_CHANNELS))
 
         self.keys = ['GridMap', 'VehiclePos', 'euler_ypr',
                      'ArmHeight', 'BladePitch']
@@ -83,9 +85,12 @@ class PushAlgoryx(BaseEnv):
     def ArmHeightCB(self, data):
         height = data.data
         self.world_state['ArmHeight'] = np.array([height])
+        # print('ArmHeight', height)
 
     def ArmShortHeightCB(self, data):
         height = data.data
+        if height <= 90:
+            height = self.PITCH_RESET + height
         self.world_state['BladePitch'] = np.array([height])
 
     def GridMapCB(self, data):
@@ -108,7 +113,7 @@ class PushAlgoryx(BaseEnv):
 
         # clear all
         self.world_state = {}
-        self.steps = 0
+        self.steps = 1
         self.total_reward = 0.0
         self._obs = []
 
@@ -134,6 +139,14 @@ class PushAlgoryx(BaseEnv):
         # self.init_dis = np.linalg.norm(self.current_obs()[0:2])
 
         # self.joycon = 'waiting'
+
+
+
+        # # blade down near ground
+        # for _ in range(30000):
+        #     self.blade_down()
+        while self.world_state['ArmHeight'] > self.DESIRED_ARM_HEIGHT:
+            self.blade_down()
 
         # current state
         self._obs = self.update_state()
@@ -180,22 +193,32 @@ class PushAlgoryx(BaseEnv):
         arm_pitch = self.world_state['BladePitch']
         current_pos = self.world_state['VehiclePos']
         dist = np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2])
-        max_dist = 10
+        max_dist = 15
         normalized_dist = dist / max_dist
-        arm_lift_max = 240
-        arm_lift_min = 227
+
+        #lift
+        arm_lift_max = 237
+        arm_lift_min = 85
         arm_lift_interval = arm_lift_max - arm_lift_min
-        arm_pitch_max = 135
-        arm_pitch_min = 0
+
+        #pitch
+        arm_pitch_max = 510
+        arm_pitch_min = 204
+        arm_pitch_opt = 310
         arm_pitch_interval = arm_pitch_max - arm_pitch_min
 
         # multiply by factor to make blade pose more important
-        factor = 2.0
-        normalized_pitch = factor * (arm_pitch_max - arm_pitch) / arm_pitch_interval
-        normalized_lift = factor *  (arm_lift_max - arm_lift) / arm_lift_interval
+        normalized_pitch = 2.0 * (arm_pitch_opt - arm_pitch) / arm_pitch_interval
+        # normalized_lift = factor *  (arm_lift_max - arm_lift) / arm_lift_interval
+        normalized_lift =(arm_lift - arm_lift_min) / arm_lift_interval
 
         mse = np.mean(np.square([normalized_lift, normalized_pitch, normalized_dist])).squeeze()
-        return -mse / PushAlgoryx.MAX_STEPS
+
+        malus = (- mse) * self.steps  / (self.MAX_STEPS ** 2.0)
+
+        # print(malus)
+
+        return malus
 
     def step(self, action):
         # if action:
@@ -208,9 +231,8 @@ class PushAlgoryx(BaseEnv):
 
         # calc step reward and add to total
         r_t = self.reward_func()
-        assert r_t < 0
-        # r_t= max(-0.2, r_t)
-        r_t *= 0.1
+        assert r_t <= 0
+        r_t *= 3.0
         # check if done
         done, final_reward, reset = self.end_of_episode()
 
@@ -221,6 +243,7 @@ class PushAlgoryx(BaseEnv):
 
         self.done = done
         if done:
+            # print('*** total reward ***', self.total_reward)
             self.world_state = {}
 
         #           print('initial distance = ', self.init_dis, ' total reward = ', self.total_reward)
@@ -268,7 +291,7 @@ class PushAlgoryx(BaseEnv):
         reset = 'No'
         final_reward = 0
         current_pos = self.world_state['VehiclePos']
-        threshold = 4
+        threshold = 8
         if self.out_of_boarders():
             done = True
             reset = 'out of boarders' + np.copy(self.world_state['VehiclePos']).__str__()
@@ -280,6 +303,7 @@ class PushAlgoryx(BaseEnv):
             done = True
             reset = 'limit time steps'
             print('----------------', reset, '----------------')
+            # final_reward = - PushAlgoryx.FINAL_REWARD
             self.episode.killSimulation()
             self.simOn = False
         elif np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2]) < threshold:
@@ -289,13 +313,13 @@ class PushAlgoryx(BaseEnv):
             self.episode.killSimulation()
             self.simOn = False
             final_reward = PushAlgoryx.FINAL_REWARD
-        elif self.world_state['ArmHeight'] < 233 and self.steps > PushAlgoryx.MAX_STEPS / 2.0:
-            done = True
-            reset = 'Arm Too High For Too Long'
-            print('----------------', reset, '----------------')
-            self.episode.killSimulation()
-            self.simOn = False
-            final_reward = - PushAlgoryx.FINAL_REWARD / 2.0
+        # elif self.world_state['ArmHeight'] < 233 and self.steps > PushAlgoryx.MAX_STEPS / 2.0:
+        #     done = True
+        #     reset = 'Arm Too High For Too Long'
+        #     print('----------------', reset, '----------------')
+        #     self.episode.killSimulation()
+        #     self.simOn = False
+        #     final_reward = - PushAlgoryx.FINAL_REWARD / 2.0
 
         self.steps += 1
 
@@ -361,3 +385,12 @@ class PushAlgoryx(BaseEnv):
             joyactions[5] = -2 * agent_action[1] + 1
 
         return joyactions
+
+    def blade_down(self):
+        # take blade down near ground at beginning of episode
+        joymessage = Joy()
+        joymessage.buttons = 11 * [0]
+        joymessage.buttons[7] = 1  ## activation of hydraulic pump
+        joymessage.axes = [0., 0., 1., 0., 0.3, 1., 0., 0.]
+        # bobcat joymessage.axes = [0., 0., 1., 0., -0.3, 1., 0., 0.]
+        self.joypub.publish(joymessage)
