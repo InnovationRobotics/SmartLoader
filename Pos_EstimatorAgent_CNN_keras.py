@@ -18,7 +18,7 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
 
     if new_model:   ## create new sequential keras model
 
-        heat_maps = heat_maps.reshape(len(heat_maps), 1, 100, 7)
+        heat_maps = heat_maps.reshape(len(heat_maps), 1, 100, 16)
 
 
         hmap_size = heat_maps.shape[1:]
@@ -73,7 +73,7 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
 
     else:   ### load existing sequential model
 
-        model = load_model('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/pos_est_model')
+        model = load_model('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/KERAS_pos_est_model')
 
     if train:   ## train new agent
         hist = model.fit(
@@ -84,7 +84,7 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
             epochs=epochs,
             validation_split=0.1
         )
-        model.save('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/pos_est_model')
+        model.save('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/KERAS_pos_est_model')
 
     else:
 
@@ -95,12 +95,12 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
             index = np.random.randint(len(heat_maps))
             h_map = heat_maps[index, :, :]
 
-            est_pos = model.predict(h_map.reshape(1, 1, 100, 7))
+            est_pos = model.predict(h_map.reshape(1, 1, 100, 16))
 
             ax.imshow(h_map)
 
             plt.scatter(est_pos[0][0], est_pos[0][1], s=100, c='red', marker='o')
-            plt.scatter(est_pos[0][2], est_pos[0][3], s=100, c='red', marker='o')
+            # plt.scatter(est_pos[0][2], est_pos[0][3], s=100, c='red', marker='o')
 
             plt.show()
 
@@ -110,21 +110,17 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
 ###########  labels[550]  #####  model.predict(states[550].reshape([1,ob_size]))
 def main():
 
-    mission = 'PushStonesHeatMapEnv'  # Change according to algorithm
-    env_id = mission + '-v0'
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/'
 
-    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/'
-
-    heat_maps = np.load(expert_path+'pos_map.npy')
-    labels = np.load(expert_path+'pos_label.npy')
-    flat_label = labels.reshape([len(labels),4])
+    heat_maps = np.load(expert_path+'pos_approx_map.npy')
+    labels = np.load(expert_path+'pos_approx_label.npy')
 
     nn_size = [128, 32]
     batch_size = 64
     learning_rate = 4e-5
-    epochs = 2000
+    epochs = 5000
 
-    Supervised_learning(heat_maps, flat_label, nn_size, batch_size, learning_rate, epochs)
+    Supervised_learning(heat_maps, labels, nn_size, batch_size, learning_rate, epochs)
 
 if __name__ == '__main__':
     main()

@@ -13,7 +13,7 @@ import talos
 # translate chosen action (array) to joystick action (dict)
 
 
-def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_model=True, train=True):
+def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_model=False, train=False):
 
 
     if new_model:   ## create new sequential keras model
@@ -62,7 +62,7 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
         # opt = SGD(lr=lr)
 
         model.compile(
-            loss='mean_absolute_error',
+            loss='mse',
             optimizer=opt)
 
         print(model.summary())

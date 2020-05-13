@@ -27,6 +27,7 @@ from std_msgs.msg import Int32, Bool
 from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
+from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PoseStamped, TwistStamped
 import math
 from scipy.spatial.transform import Rotation
@@ -103,8 +104,6 @@ class BaseEnv(gym.Env):
         az = imu.linear_acceleration.z
         self.world_state['VehicleLinearAccIMU'] = np.array([-ay,ax,az])
 
-        # rospy.loginfo('vehicle imu is:' + str(imu))
-
     def StonePositionCB(self, data, arg):
         position = data.pose.position
         stone = arg
@@ -118,6 +117,9 @@ class BaseEnv(gym.Env):
 
     def joyCB(self, data):
         self.joycon = data.axes
+
+    def HeatMapCB(self, data):
+        self.heat_map = data
 
     def do_action(self, agent_action):
 
@@ -138,17 +140,13 @@ class BaseEnv(gym.Env):
         return actionValues
 
 
-    def __init__(self,numStones=1):
+    def __init__(self):
         super(BaseEnv, self).__init__()
 
         print('environment created!')
 
         self.world_state = {}
-        self.stones = {}
-        self.simOn = False
 
-        self.numStones = numStones
-        self.marker = True # True for Push Stones env, False for Pick Up env
         self.reduced_state_space = True
 
         self.hist_size = 3
@@ -170,16 +168,7 @@ class BaseEnv(gym.Env):
         self.heightSub = rospy.Subscriber('arm/height', Int32, self.ArmHeightCB)
         self.bladeImuSub = rospy.Subscriber('arm/blade/Imu', Imu, self.BladeImuCB)
         self.vehicleImuSub = rospy.Subscriber('mavros/imu/data', Imu, self.VehicleImuCB)
-
-        self.stonePoseSubList = []
-        self.stoneIsLoadedSubList = []
-
-        for i in range(1, self.numStones+2):
-            topicName = 'stone/' + str(i) + '/Pose'
-            self.stonePoseSubList.append(rospy.Subscriber(topicName, PoseStamped, self.StonePositionCB, i))
-        # if self.marker:
-        #     topicName = 'stone/' + str(self.numStones+1) + '/Pose'
-        #     self.stonePoseSubList.append(rospy.Subscriber(topicName, PoseStamped, self.StonePositionCB, self.numStones+1))
+        self.HeatMapSub = rospy.Subscriber('velodyne_points', PointCloud2, self.HeatMapCB)
 
         self.joysub = rospy.Subscriber('joy', Joy, self.joyCB)
 
@@ -208,7 +197,6 @@ class BaseEnv(gym.Env):
                         # self.world_state['VehicleAngularVel'][2]*180/pi,                              # yaw rate [deg/s]
                         # np.linalg.norm(self.world_state['VehicleLinearAccIMU']),                      # linear acceleration size [m/s^2]
                         self.world_state['ArmHeight'][0]])  # arm height [m]
-
         return obs
 
     def current_obs(self):
@@ -237,67 +225,40 @@ class BaseEnv(gym.Env):
 
         return norm_yaw
 
-    def init_env(self):
-        if self.simOn:
-            self.episode.killSimulation()
-
-        self.episode = EpisodeManager()
-        # self.episode.generateAndRunWholeEpisode(typeOfRand="verybasic") # for NUM_STONES = 1
-        self.episode.generateAndRunWholeEpisode(typeOfRand="MultipleRocks", numstones=self.numStones, marker=self.marker)
-        self.simOn = True
-
     def reset(self):
         # what happens when episode is done
 
         # clear all
         self.world_state = {}
-        self.stones = {}
         self.steps = 0
         self.total_reward = 0
         self.borders = []
-        self.sens_obs=[]
+        self.hist_obs=[]
 
         # initial state depends on environment (mission)
-        self.init_env()
 
         # wait for simulation to set up
         while True: # wait for all topics to arrive
-            if bool(self.world_state) and bool(self.stones): # and len(self.stones) == self.numStones + 1:
+            if bool(self.world_state):
                 break
 
         # wait for simulation to stabilize, stones stop moving
         time.sleep(5)
 
-        if self.marker: # push stones mission, ref = target
-            self.ref_pos = self.stones['StonePos{}'.format(self.numStones + 1)]
-        else: # pick up mission, ref = stone pos
-            self.ref_pos = self.stones['StonePos1']
-
-        # # blade down near ground
-        # for _ in range(30000):
-        #     self.blade_down()
-        # DESIRED_ARM_HEIGHT = 22
-        # while self.world_state['ArmHeight'] > DESIRED_ARM_HEIGHT:
-        #     self.blade_down()
-
-        # get observation from simulation
-
         for _ in range(self.hist_size):
 
-            self.sens_obs.append(self.current_obs())  ## recieve sensor information
+            self.hist_obs.append(self.heat_map)  ## recieve sensor information
 
-        aug_obs = np.zeros([self.hmap_size[0], 1])
-        aug_obs[0:len(self.sens_obs[0])*self.hist_size,0]=np.array(self.sens_obs).flatten()  ## augment sensor info vertor to heat map size
+        # aug_obs = np.zeros([self.hmap_size[0], 1])
+        # aug_obs[0:len(self.sens_obs[0])*self.hist_size,0]=np.array(self.sens_obs).flatten()  ## augment sensor info vertor to heat map size
 
-        hist_obs = np.concatenate((self.heatmap(), aug_obs), axis=1)
+        # self.init_dis = np.sqrt(np.sum(np.power(self.current_obs()[0:3], 2)))
 
-        self.init_dis = np.sqrt(np.sum(np.power(self.current_obs()[0:3], 2)))
+        # self.borders = self.scene_boarders()
 
-        self.borders = self.scene_boarders()
+        # self.joycon = 'waiting'
 
-        self.joycon = 'waiting'
-
-        return hist_obs
+        return self.hist_obs
 
 
     def step(self, action):
