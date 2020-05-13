@@ -1,4 +1,3 @@
-import os
 import time
 import numpy as np
 from matplotlib import pyplot as plt
@@ -48,9 +47,7 @@ class PushPid:
         self.speed_pid = PID(P=1.2, I=0.1, D=0.1, saturation=0.6)
         self.speed_pid.setSampleTime(self.TIME_STEP)
 
-
     def step(self, obs, des):
-        # obs = {h_map, x_blade, y_blade, blade_orien, lift, pitch, x_vehicle, y_vehicle, vehicle_orien}
         current_lift = obs['lift']
         current_pitch = obs['pitch']
 
@@ -58,8 +55,8 @@ class PushPid:
         self.lift_pid.SetPoint = des[2]  # desired lift
         self.pitch_pid.SetPoint = des[3]  # desired pitch
 
+        # # for connecting lift and speed demands and actions
         # lift_error = abs(des[2] - current_lift)
-
         # lift_speed_factor = np.clip(5/abs(des[2] - current_lift), 0.35, 1)
         # print(lift_speed_factor)
 
@@ -80,12 +77,12 @@ class PushPid:
         # steer_action = self.steer_pid.update(current_steer)
         speed_action = self.speed_pid.update(current_speed)
 
+        # # for connecting lift and speed demands and actions
         # if lift_error > 10:
         #     speed_action = 0.5*speed_action
 
         # do action
         action = np.array([0, speed_action, pitch_action, lift_action])
-        # action = np.array([steer_action, speed_action, 0, 0])
 
         # save data
         self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
@@ -114,7 +111,6 @@ class DumpPid:
         # des = [x_blade, y_blade, lift, pitch]
         self.lift_pid.SetPoint = des[2]  # desired lift
         self.pitch_pid.SetPoint = des[3]  # desired pitch
-
 
     def step(self, obs):
         current_lift = obs['lift']
@@ -155,7 +151,6 @@ class DriveBackAndLowerBladePid:
         self.lift_pid.SetPoint = des[2]  # desired lift
         self.pitch_pid.SetPoint = des[3]  # desired pitch
 
-
     def step(self, obs, des, steer=True):
         current_lift = obs['lift']
         current_pitch = obs['pitch']
@@ -195,7 +190,6 @@ class DriveBackPid:
         self.speed_pid = PID(P=1.5, I=0.1, D=0.1, saturation=0.8)
         self.speed_pid.setSampleTime(self.TIME_STEP)
 
-
     def step(self, obs, des, steer=True):
         # speed error: x_des - x_current
         x_des, y_des = des[0], des[1]
@@ -230,7 +224,6 @@ class LoadPid:
         self.speed_pid = PID(P=1, I=0.1, D=0.1, saturation=0.6)
         self.speed_pid.setSampleTime(self.TIME_STEP)
 
-
     def step(self, obs, des, x_pile):
         current_lift = obs['lift']
         current_pitch = obs['pitch']
@@ -250,16 +243,16 @@ class LoadPid:
         speed_action = self.speed_pid.update(current_speed)
 
         # do action
-        if obs['x_blade'] < x_pile - 0.5:
-            action = np.array([0, speed_action, 0, 0])
-        else:
-            action = np.array([0, speed_action, pitch_action, lift_action])
+        # if far away from pile, only drive, don't move blade
+        # if obs['x_blade'] < x_pile - 0.5:
+        #     action = np.array([0, speed_action, 0, 0])
+        # else:
+        action = np.array([0, speed_action, pitch_action, lift_action])
 
         # save data
         self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
         self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
         self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
-
 
         return action
 
@@ -332,7 +325,6 @@ class PID:
 
         else:
             return 0
-
 
     def setSampleTime(self, sample_time):
         """PID that should be updated at a regular interval.
