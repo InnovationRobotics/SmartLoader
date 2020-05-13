@@ -5,6 +5,7 @@ from LLC import LLC_pid
 import numpy as np
 import math
 import time
+from signal import signal, SIGKILL
 
 
 def show_map(hmap):
@@ -14,13 +15,16 @@ def show_map(hmap):
     # plt.show()
     # plt.close
 
+
 def de_norm_states(des):
     des = [des[0] * 3, des[1] * 130 + 150, des[2] * 230 + 50]  # un-normalize
     return des
 
+
 def normalize_map(h_map):
     norm_hmap = (h_map - np.min(h_map)) / np.ptp(h_map)
     return norm_hmap
+
 
 def map_clipper(hmap, shovle_pos, x_clip=None, x_offset=None, y_clip=None):
 
@@ -56,6 +60,7 @@ def map_clipper(hmap, shovle_pos, x_clip=None, x_offset=None, y_clip=None):
 
     return clipped_heatmap
 
+
 def desired_config(obs, x_model, lift_pitch_model):
     # from model predict desired configuration
     blade_pos = [obs['x_blade'], obs['y_blade']]
@@ -64,6 +69,9 @@ def desired_config(obs, x_model, lift_pitch_model):
     norm_hmap = normalize_map(hmap)
 
     Lift_Pitch_hmap = map_clipper(norm_hmap, blade_pos, x_clip=50, x_offset=20, y_clip=30)
+
+    show_map(Lift_Pitch_hmap)
+
     Thrust_hmap = map_clipper(norm_hmap, blade_pos, y_clip=30)
 
     Lift_Pitch_hmap = Lift_Pitch_hmap.reshape(1, 1, Lift_Pitch_hmap.shape[0], Lift_Pitch_hmap.shape[1])
@@ -72,17 +80,33 @@ def desired_config(obs, x_model, lift_pitch_model):
     L_P_des = lift_pitch_model.predict(Lift_Pitch_hmap)[0]
     x_deses = x_model.predict(Thrust_hmap)[0] * 3
 
-    lifts = np.array([L_P_des[0], L_P_des[2], L_P_des[4], L_P_des[6], L_P_des[8]]) * 50 + 150
-    pitches = np.array([L_P_des[1], L_P_des[3], L_P_des[5], L_P_des[7], L_P_des[9]]) * 230 + 50
+    lifts = L_P_des[[np.arange(0,10,2)]] * 100 + 150
+    pitches = L_P_des[[np.arange(1,10,2)]] * 230 + 50
+    lift_des = lifts[0]
+    pitch_des = pitches[0]
+    x_des = x_deses[-1]
 
-    x_err = x_deses - obs['x_blade']
-    min_x_err = np.where(x_err > 0.1)
-    if len(min_x_err[0]) == 0:
-        x_des = obs['x_blade'] + 0.05
-    else:
-        x_des = np.min(x_err[min_x_err]) + obs['x_blade']
+    # x_err = x_deses - obs['x_blade']
+    # min_x_err = np.where(x_err > 0.1)
+    # if len(min_x_err[0]) == 0:
+    #     x_des = obs['x_blade'] + 0.03
+    # else:
+    #     x_des = np.min(x_err[min_x_err]) + obs['x_blade']
 
-    return [x_des, obs['y_blade'], lifts[0], pitches[0]]
+    return [x_des, obs['y_blade'], lift_des, pitch_des]
+
+def pile_pos(obs):
+    h_map = obs['h_map']
+    # shovel_pos = [obs['x_blade'], obs['y_blade']]
+    blade_x_pos = int(obs['x_blade'] * 100)
+    blade_y_pos = int(obs['y_blade'] * 100)
+    clipped_map = h_map[blade_x_pos+20:, blade_y_pos-30:blade_y_pos+30]
+    # clipped_map = map_clipper(h_map, shovel_pos, x_clip=200, x_offset=20, y_clip=30)
+    x_ind = np.unravel_index(np.argmax(clipped_map, axis=None), clipped_map.shape)[0]
+    max_x_pos = (x_ind+blade_x_pos+20)/100
+    z_max = np.max(clipped_map)
+    return max_x_pos, z_max
+
 
 def quatToEuler(quat):
     x = quat[0]
@@ -106,27 +130,56 @@ def quatToEuler(quat):
     return X, Y, Z
 
 
+def plot_loc(x, y, x_des, y_des):
+    # location plot
+    length = len(x)
+    t = np.linspace(0, length, length)
+    fig, (ax_x, ax_y) = plt.subplots(2)
+    ax_x.set_title('x pos')
+    ax_y.set_title('y pos')
+
+    ax_x.plot(t, x, color='blue')
+    ax_y.plot(t, y, color='blue')
+    ax_x.plot(t, x_des, color='red')
+    ax_y.plot(t, y_des, color='red')
+
+    # save
+    fig.savefig('/home/sload/git/SmartLoader/LLC/plots/locations')
+    print('figure saved!')
+
+
 if __name__ == '__main__':
 
     env = SmartLoader()
     obs = env.get_obs()
 
-    x_model = load_model('/home/sload/Downloads/new_test_all_recordings_x_model_10_pred')
-    lift_pitch_model = load_model('/home/sload/Downloads/new_test_new_recordings_LP_model')
+    x_model = load_model('/home/sload/Downloads/lift_task_x_model_5_pred')
+    lift_pitch_model = load_model('/home/sload/Downloads/lift_task_LP_model_5_pred')
 
     X, Y, X_des, Y_des = [], [], [], []
     steps = 0
 
+    while True:
+        obs = env.get_obs()
+        des = desired_config(obs, x_model, lift_pitch_model)
+        print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+        # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
+        # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
+
     for step in range(3):
 
-        ##### push mission #####
-        push_pid = LLC_pid.PushPid()
+        x_pile, z_pile = pile_pos(obs)
+
+        ##### load mission #####
+        load_pid = LLC_pid.LoadPid()
         counter = 0
+        # pile = find_pile(obs)
         last_loc = obs['x_vehicle']
 
         while True:
             des = desired_config(obs, x_model, lift_pitch_model)
-            action = push_pid.step(obs, des)
+            # print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+            action = load_pid.step(obs, des, x_pile)
             obs = env.step(action)
 
             # save locations
@@ -136,31 +189,30 @@ if __name__ == '__main__':
             Y_des.append(des[1])
             steps += 1
 
-            # stopping conditions
-            movement = abs(last_loc - obs['x_vehicle'])
-            print(movement)
-            if movement < 0.003:
-                counter += 1
-                if counter == 100:
-                    print('got stuck! move back')
-                    break
-            else:
-                counter = 0
-                last_loc = obs['x_vehicle']
+            # # stopping conditions
+            # movement = abs(last_loc - obs['x_vehicle'])
+            # # print(movement)
+            # if movement < 0.003:
+            #     counter += 1
+            #     if counter == 100 and obs['lift'] >= 180:
+            #         break
+            # else:
+            #     counter = 0
+            #     last_loc = obs['x_vehicle']
 
-            if obs['x_blade'] >= 2.2:
+            print('x pile = ', x_pile, 'x cur = ', obs['x_blade'], 'lift des = ', des[2])
+            if obs['x_blade'] >= x_pile - 0.1 and obs['z_blade'] - z_pile >= 0.35:  # obs['lift'] >= 190:
                 break
 
-        print('pushing mission done!')
+        print('Loading mission done!')
         # plots
-        push_pid.lift_pid.save_plot('lift push {}'.format(str(step)), 'lift')
-        push_pid.pitch_pid.save_plot('pitch push {}'.format(str(step)), 'pitch')
-        # push_pid.steer_pid.save_plot('steer push {}'.format(str(step)), 'steer')
-        push_pid.speed_pid.save_plot('speed push {}'.format(str(step)), 'speed')
-
+        load_pid.lift_pid.save_plot('lift load {}'.format(str(step)), 'lift')
+        load_pid.pitch_pid.save_plot('pitch load {}'.format(str(step)), 'pitch')
+        load_pid.speed_pid.save_plot('speed load {}'.format(str(step)), 'speed')
 
         ##### dump mission #####
-        dump_pid = LLC_pid.DumpPid()
+        des = [obs['x_blade'], obs['y_blade'], 210, 220]
+        dump_pid = LLC_pid.DumpPid(des)
         while True:
             action = dump_pid.step(obs)
             obs = env.step(action)
@@ -172,7 +224,7 @@ if __name__ == '__main__':
             Y_des.append(des[1])
 
             # stopping condition
-            if obs['pitch'] >= dump_pid.pitch_pid.SetPoint:
+            if obs['lift'] >= des[2] and obs['pitch'] >= des[3]:
                 break
 
         print('dumping mission done!')
@@ -180,12 +232,12 @@ if __name__ == '__main__':
         dump_pid.lift_pid.save_plot('lift dump {}'.format(str(step)), 'lift')
         dump_pid.pitch_pid.save_plot('pitch dump {}'.format(str(step)), 'pitch')
 
-
         ##### drive backwards #####
+        des = [obs['x_vehicle']-0.5, obs['y_vehicle'], 175, 140]
         back_pid = LLC_pid.DriveBackPid()
-        des = [0.5, obs['y_vehicle'], 155, ]
-        # back_pid.steer_pid.SetPoint = 0
-        while True:
+        back_and_lower_pid = LLC_pid.DriveBackAndLowerBladePid(des)
+
+        while obs['x_vehicle'] > des[0] + 0.25:
             action = back_pid.step(obs, des)
             obs = env.step(action)
 
@@ -195,31 +247,33 @@ if __name__ == '__main__':
             X_des.append(des[0])
             Y_des.append(des[1])
 
+        # plots
+        back_pid.speed_pid.save_plot('speed back {}'.format(str(step)), 'speed')
+
+        while True:
+            action = back_and_lower_pid.step(obs, des)
+            obs = env.step(action)
+
+            # save locations
+            X.append(obs['x_blade'])
+            Y.append(obs['y_blade'])
+            X_des.append(des[0])
+            Y_des.append(des[1])
+
             # stopping condition
-            if obs['x_vehicle'] <= 0.5:
+            if obs['x_vehicle'] <= des[0] and obs['lift'] <= des[2] and obs['pitch'] <= des[3]:
                 print('driving backwards mission done!')
                 break
 
         # plots
-        # back_pid.steer_pid.save_plot('steer back {}'.format(str(step)), 'steer')
-        back_pid.speed_pid.save_plot('speed back {}'.format(str(step)), 'speed')
+        back_and_lower_pid.speed_pid.save_plot('speed back {}'.format(str(step)), 'speed')
+        back_and_lower_pid.pitch_pid.save_plot('pitch back {}'.format(str(step)), 'pitch')
+        back_and_lower_pid.lift_pid.save_plot('lift back {}'.format(str(step)), 'lift')
 
     # stop moving
     action = np.array([0, 0, 0, 0])
     obs = env.step(action)
 
-    # location plot
-    length = len(X)
-    t = np.linspace(0, length, length)
-    fig, (ax_x, ax_y) = plt.subplots(2)
-    ax_x.set_title('x pos')
-    ax_y.set_title('y pos')
+    plot_loc(X, Y, X_des, Y_des)
 
-    ax_x.plot(t, X, color='blue')
-    ax_y.plot(t, Y, color='blue')
-    ax_x.plot(t, X_des, color='red')
-    ax_y.plot(t, Y_des, color='red')
-
-    # save
-    fig.savefig('/home/sload/git/SmartLoader/LLC/plots/locations')
-    print('figure saved!')
+    # signal(SIGKILL, plot_loc(X, Y, X_des, Y_des))

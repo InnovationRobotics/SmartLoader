@@ -1,18 +1,13 @@
 #!/usr/bin/python
 
 import rospy
-from std_msgs.msg import Header
 from std_msgs.msg import Int32, Bool
-from std_msgs.msg import String
 from sensor_msgs.msg import Joy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import PoseStamped, TwistStamped, PoseWithCovarianceStamped
 from sensor_msgs.msg import PointCloud2
 import ros_numpy
 from grid_map_msgs.msg import GridMap
-from HeatMapGen import HeatMap
-from matplotlib import pyplot as plt
-from LLC import LLC_pid
 from keras.models import load_model
 
 import os
@@ -40,6 +35,7 @@ def quatToEuler(quat):
     Z = math.degrees(math.atan2(t3, t4))
 
     return X, Y, Z
+
 
 class SmartLoader:
 
@@ -152,7 +148,6 @@ class SmartLoader:
         # plt.close
 
     def do_action(self, agent_action):
-
         joymessage = Joy()
 
         joyactions = self.AgentToJoyAction(agent_action)  # clip actions to fit action_size
@@ -185,6 +180,24 @@ class SmartLoader:
 
         return joyactions
 
+    def lift_est(self):
+        x_blade = self.world_state['ShovelPos'].item(0)
+        y_blade = self.world_state['ShovelPos'].item(1)
+        z_blade = self.world_state['ShovelPos'].item(2)
+        pitch = self.world_state['BladePitch'].item(0)
+
+        x_blade = x_blade / 2.6
+        y_blade = y_blade / 1.6
+        z_blade = (z_blade - 0.097) / (0.323 - 0.097)
+        pitch = (pitch - 50) / 230
+
+        data = np.array([x_blade, y_blade, z_blade, pitch])
+
+        lift = self.lift_est_model.predict(data.reshape(1,4))
+        lift = lift*100 + 150
+        return lift.item(0)
+
+
     def __init__(self):
 
         self._output_folder = os.getcwd()
@@ -200,7 +213,8 @@ class SmartLoader:
         self.blade_lift_hist = []
 
         self.obs = {}
-        self.keys = ['ArmHeight', 'BladePitch', 'VehiclePos', 'ShovelPos']
+        # self.keys = ['ArmHeight', 'BladePitch', 'VehiclePos', 'ShovelPos']
+        self.keys = ['BladePitch', 'VehiclePos', 'ShovelPos']
 
         # For time step
         self.current_time = time.time()
@@ -208,6 +222,8 @@ class SmartLoader:
         self.time_step = []
         self.last_obs = np.array([])
         self.TIME_STEP = 0.01
+
+        self.lift_est_model = load_model('/home/sload/Downloads/lift_est_model_corrected')
 
         ## ROS messages
         rospy.init_node('slagent', anonymous=False)
@@ -226,17 +242,16 @@ class SmartLoader:
         # Define Publisher
         self.joypub = rospy.Publisher('joy', Joy, queue_size=10)
 
-
     def get_obs(self):
 
         # wait for topics to update
-        while True: # wait for all topics to arrive
+        while True:  # wait for all topics to arrive
             if all(key in self.world_state for key in self.keys) and (len(self.heat_map) > 0):
                 break
 
         # current state
         h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_lift = self.world_state['ArmHeight'].item(0)
         arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
@@ -244,14 +259,15 @@ class SmartLoader:
         # vehicle_orien = quatToEuler(np.around (self.world_state['VehicleOrienIMU'],2))[2]
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
-
+        z_blade = self.world_state['ShovelPos'].item(2)
         # blade_orien = self.world_state['BladeOrien']
 
+        arm_lift = self.lift_est()
+
         obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'z_vehicle': z_vehicle,
-               'x_blade':x_blade, 'y_blade':y_blade, 'lift': arm_lift, 'pitch': arm_pitch}
+               'x_blade':x_blade, 'y_blade':y_blade, 'z_blade': z_blade, 'lift': arm_lift, 'pitch': arm_pitch}
 
         return obs
-
 
     def step(self, action):
 
@@ -264,7 +280,7 @@ class SmartLoader:
 
         # current state
         h_map = self.heat_map
-        arm_lift = self.world_state['ArmHeight'].item(0)
+        # arm_lift = self.world_state['ArmHeight'].item(0)
         arm_pitch = self.world_state['BladePitch'].item(0)
         x_vehicle = self.world_state['VehiclePos'].item(0)
         y_vehicle = self.world_state['VehiclePos'].item(1)
@@ -272,12 +288,13 @@ class SmartLoader:
         # vehicle_orien = quatToEuler(self.world_state['VehicleOrienIMU'])[2]
         x_blade = self.world_state['ShovelPos'].item(0)
         y_blade = self.world_state['ShovelPos'].item(1)
-
+        z_blade = self.world_state['ShovelPos'].item(2)
         # blade_orien = self.world_state['BladeOrien']
 
-        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'z_vehicle': z_vehicle,
-               'x_blade':x_blade, 'y_blade':y_blade, 'lift': arm_lift, 'pitch': arm_pitch}
+        arm_lift = self.lift_est()
 
+        obs = {'h_map':h_map, 'x_vehicle':x_vehicle, 'y_vehicle':y_vehicle, 'z_vehicle': z_vehicle,
+               'x_blade':x_blade, 'y_blade':y_blade, 'z_blade': z_blade, 'lift': arm_lift, 'pitch': arm_pitch}
 
         step_time = time.time() - start_time
         if step_time < self.TIME_STEP:
