@@ -159,12 +159,12 @@ if __name__ == '__main__':
     X, Y, X_des, Y_des = [], [], [], []
     steps = 0
 
-    while True:
-        obs = env.get_obs()
-        des = desired_config(obs, x_model, lift_pitch_model)
-        print('curr lift = ', obs['lift'], 'des lift = ', des[2])
-        # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
-        # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
+    # while True:
+    #     obs = env.get_obs()
+    #     des = desired_config(obs, x_model, lift_pitch_model)
+    #     print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+    #     # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
+    #     # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
 
     for step in range(3):
 
