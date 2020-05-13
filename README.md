@@ -13,3 +13,4 @@ Includes:
   - Imitation learning from recordings - Pos_EstimatorAgent_CNN_Keras
   - Benny’s heatmap - HeatMapGen
   - LLC - PID for controlling all loader’s actions (or bobcat in simulation): steer, speed, lift, pitch. Different PIDs for different missions: push, dump, drive back, load.
+  - algorix training
