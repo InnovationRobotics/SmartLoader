@@ -71,7 +71,8 @@ class PushAlgoryx(BaseEnv):
 
         self.total_reward = 0.0
         self.last_best_model = None
-        self.limited_scene = {}
+        self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':315, 'pitchMax':325}
+        # self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
 
     # CALLBACKS
     def subscribe_to_topics(self):
@@ -292,7 +293,7 @@ class PushAlgoryx(BaseEnv):
         reset = 'No'
         final_reward = 0
         current_pos = self.world_state['VehiclePos']
-        threshold = 8
+        threshold = 6
         if self.out_of_boarders():
             done = True
             reset = 'out of boarders' + np.copy(self.world_state['VehiclePos']).__str__()
@@ -373,15 +374,18 @@ class PushAlgoryx(BaseEnv):
         joyactions = np.zeros(6)
 
         joyactions[2] = joyactions[5] = 1
-        self.limited_scene = {'notBW': False, 'liftMax': 237, 'pitchMin':204, 'pitchMax':510}
+        #self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
         if bool(self.limited_scene):
-            if ('notBW' in self.limited_scene):
-                if self.limited_scene['notBW'] and (agent_action[1]<0):
-                    joyactions[2]=0
-                else:
-                    self.drive(agent_action, joyactions)
-            else:
-                self.drive(agent_action, joyactions)
+            # if 'notBW' in self.limited_scene:
+            agent_action[1] = max(agent_action[1], 0.001) if 'notBW' in self.limited_scene and self.limited_scene['notBW'] else agent_action[1]
+            self.drive(agent_action,joyactions)
+
+            #     if self.limited_scene['notBW'] and (agent_action[1]<0):
+            #         joyactions[2]=0
+            #     else:
+            #         self.drive(agent_action, joyactions)
+            # else:
+            #     self.drive(agent_action, joyactions)
 
             if 'liftMax' in self.limited_scene:
                 if (self.world_state['ArmHeight'] > self.limited_scene['liftMax']) and (agent_action[3] < 0):
