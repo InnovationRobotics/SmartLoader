@@ -1,12 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.pyplot import ion
+
+from matplotlib.pyplot import ion, gca
+
 from keras.models import Model, load_model
 import re
 from os import walk
 import csv
+import sys
 import time
 
+
+csv.field_size_limit(sys.maxsize)
 
 def joy_to_agent(joy_actions):
     agent_action = np.zeros(4)
@@ -23,169 +28,168 @@ def joy_to_agent(joy_actions):
     return agent_action
 
 
-jobs = ['heat_map_generator', 'concat_recodrings', 'pos_aprox', 'pos_deductor', 'xy_labels_saver']
-job = jobs[4]
+def str_translator(str_val):
+    if len(str_val) == 0:  # if no imu data, skip line
+        global nd_skipped_data
+        nd_skipped_data += 1
+        return
+    sns_val = []
+    for cord in str_val:
+        try:
+            sns_val.append(float(re.sub("[^\d\.\-\'e']", "", cord)))
+        except:
+            continue
+    return sns_val
+
+
+def show_heatmap(heatmap, arm_height, anim=True):
+    if anim:
+        plt.imshow(heatmap, aspect=1)
+        plt.text(40, 5, arm_height, fontsize=15)
+        plt.show(block=False)
+        plt.pause(0.01)
+        try:
+            del gca().texts[-1]
+        except:
+            pass
+
+    else:
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(heatmap)
+        print(arm_height)
+        # est_pos = [shovle_pos[0]*260, shovle_pos[1]*(y_map_clip[1]-y_map_clip[0])]
+        # plt.scatter(est_pos[1], est_pos[0], s=300, c='red', marker='o')
+        plt.show()
+
+jobs = ['heat_map_generator', 'concat_recodrings', 'pos_aprox', 'pos_deductor']
+job = jobs[0]
+sp_skipped_data = 0
+nd_skipped_data = 0
+nd_skipped_data = 0
+hm_skipped_data = 0
 
 if job == 'heat_map_generator':
 
-    recordings_path = '/home/graphics/push_28_04_all/'
+    recordings_path = '/home/graphics/BC_recordings/lift_pile_12_05/'
 
-    stripe_limits = [-0.8, 0.8]
+    show_map = False
 
-    show_point_cloud = False
-    show_height_map = False
 
     actions = []
     states = []
     heatmaps = []
     starts = []
 
-    ep_counter = 1
-    skipped_data = 0
+    prev_body_pose = [0, 0, 0]
 
-    stripe_range = np.arange(stripe_limits[0], stripe_limits[1] + 0.1, 0.1)
-    num_of_stripes = len(stripe_range) - 1
-    x_res = 100
+    ep_counter = 1
+    step_counter = 0
+
 
     for (dirpath, dirnames, _) in walk(recordings_path):  # crate a list of episodes
         break
+
     for ep_dir in dirnames:  ## iterate over each
-        for (_, _, filenames) in walk(dirpath + ep_dir):  # create a list of pointcloud steps for each episode
+        print(ep_dir)
+        starts.append(True)
+        for (_, _, filenames) in walk(recordings_path+ep_dir):  # create a list of pointcloud steps for each episode
             break
 
         # first remove bag file from list and go over csv:
         csv_index = [n for n, x in enumerate(filenames) if 'csv' in x][0]
         bag_index = [n for n, x in enumerate(filenames) if 'bag' in x][0]
 
+        # csv_file = filenames[csv_index][7:-1]  ## if csv is open
         csv_file = filenames[csv_index]
 
-        for index in sorted([csv_index, bag_index], reverse=True):
-            del filenames[index]
-
-        with open(dirpath + ep_dir + '/' + csv_file) as csvfile:
+        with open(recordings_path+ep_dir+'/'+csv_file) as csvfile:
             reader = csv.reader(csvfile)
             next(reader)
-            starts.append(True)
 
-            for row in reader:
+            for row_num, row in enumerate(reader):
+                step_counter += 1
 
                 # read actions
                 act = row[2]
+                if len(act) == 0:  # if no action data, skip line
+                    nd_skipped_data += 1
+                    continue
                 act = act.replace('(', '').replace(')', '')
                 act = act.split(',')
                 act = [float(i) for i in act]
 
-                # read states (i.e. arm heigh and pitch and body and shovle orientation)
-                body_orien_str = row[8][0:107].split()
-                if len(body_orien_str) == 0:  # if no imu data, skip line
-                    skipped_data += 1
-                    continue
-                body_orien = []
-                for cord in body_orien_str:
-                    try:
-                        body_orien.append(float(re.sub("[^\d\.\-\'e']", "", cord)))
-                    except:
-                        continue
 
-                blade_orien_str = row[7][0:110].split()
-                if len(blade_orien_str) == 0:  # if no imu data, skip line
-                    skipped_data += 1
-                    continue
-                blade_orien = []
-                for cord in blade_orien_str:
-                    try:
-                        blade_orien.append(float(re.sub("[^\d\.\-\'e']", "", cord)))
-                    except:
-                        continue
-
-                state = [int(row[5]), int(row[6]), body_orien, blade_orien]
-
-                # read heatmap
-                h_map_file = row[10] + '.npz'
-
-                point_cloud = np.load(dirpath + ep_dir + '/' + h_map_file)['arr_0']
-                if len(point_cloud) < 10000:
-                    skipped_data += 1
+                # read states (i.e. arm height and pitch and body and shovle orientation)
+                body_pos_str = row[3][0:86].split()
+                body_pos = str_translator(body_pos_str)
+                if not body_pos:
                     continue
 
-                start_time = time.time()
 
-                z = -point_cloud[:, 0]
-                x = point_cloud[:, 1]
-                y = -point_cloud[:, 2]
+                if prev_body_pose == body_pos:
+                    # print('same pos, skipping row {}', format(row_num+1))
+                    sp_skipped_data += 1
+                    continue
 
-                ind = np.where((x < -1.4) | (x > 1.5) | (z > -2.2))
+                # if (body_pos[0]-prev_body_pose[0]) < -0.7:
+                #     starts.append(True)
+                # else:
+                #     starts.append(False)
 
-                x = np.delete(x, ind)
-                y = np.delete(y, ind)
-                z = np.delete(z, ind)
+                prev_body_pose = body_pos
 
-                z = (z - np.min(z)) / np.ptp(z)  ## normalize height [0,1]
+                shovle_pos_str = row[4][0:86].split()
+                shovle_pos = str_translator(shovle_pos_str)
+                if not shovle_pos:
+                    continue
 
-                if show_point_cloud:
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111, projection='3d')
+                arm_height = int(row[5])
+                arm_pitch = int(row[6])
 
-                    ax.scatter(x, y, z, s=0.1)
+                blade_orien_str = row[7][0:120].split()
+                blade_orien = str_translator(blade_orien_str)
 
-                    ax.set_xlabel('X Label')
-                    ax.set_ylabel('Y Label')
-                    ax.set_zlabel('Z Label')
-                    plt.show()
+                body_orien_str = row[8][0:120].split()
+                body_orien = str_translator(body_orien_str)
 
-                h_map = np.zeros([x_res, num_of_stripes])
+                heat_map_str = row[9][178:-1].split(',')
+                heat_map = str_translator(heat_map_str)
 
-                x_A_coeff = (x_res - 1) / 3
-                x_B_coeff = (x_res - 1) / 2
+                heat_map_size = [int(row[9][64:67]),int(row[9][132:135])]
 
-                y_A_coeff = (num_of_stripes - 1) / (stripe_limits[1] - stripe_limits[0])
-                y_B_coeff = -stripe_limits[0] * y_A_coeff
+                hm_array = np.array(heat_map)
+                dirt = np.where((hm_array > 0.5) | (hm_array < -0.5))
+                for arr_cell in dirt[0]:
+                    hm_array[arr_cell] = np.median(hm_array)
 
-                x_ind = np.array([x * x_A_coeff + x_B_coeff]).astype(int)
-                y_ind = np.array([y * y_A_coeff + y_B_coeff]).astype(int)
+                # show_heatmap(np.array(heat_map).reshape(heat_map_size), arm_height)
 
-                for y_step in range(num_of_stripes):
+                ## normalize heat_map
+                heat_map = (hm_array - np.min(hm_array)) / np.ptp(hm_array)
 
-                    for x_step in range(x_res):
+                ## reshape heatmap
+                heat_map = np.array(heat_map).reshape(heat_map_size)
+                if show_map:
+                    show_heatmap(heat_map, arm_height)
 
-                        z_ind = np.argwhere(np.logical_and(y_step == y_ind, x_step == x_ind)[0])
-                        if len(z_ind) == 0:
-                            continue
-                        h_map[x_step, y_step] = np.max(z[z_ind])
-
-                # pc_len = len(x)
-                #
-                # for point in range(pc_len):
-                #     if (y[point] < stripe_limits[0]) | (y[point] > stripe_limits[1]+0.1):
-                #         continue
-                #     x_ind = int(x[point] * x_A_coeff + x_B_coeff)
-                #     y_ind = int(y[point] * y_A_coeff + y_B_coeff)
-                #     if z[point] > h_map[x_ind, y_ind]:
-                #         h_map[x_ind, y_ind] = z[point]
-
-                frame_time = time.time() - start_time
-                # print(frame_time)
-
-                if show_height_map:
-                    plt.imshow(h_map, aspect=0.1)
-                    plt.show(block=False)
-                    plt.pause(0.001)
-
-                heatmaps.append(h_map)  # create a list of heatmaps for each episode
-                starts.append(False)
-                actions.append(joy_to_agent(act))
+                # ---- append current map, state and actions to list ----
+                state = [body_pos, shovle_pos, body_orien, blade_orien, arm_height, arm_pitch]
                 states.append(state)
+                heatmaps.append(heat_map)  # create a list of clipped heatmaps for each episode
+                actions.append(joy_to_agent(act))
 
+                starts.append(False)
+                print('appended {} steps'.format(row_num))
+
+            print('episode {}:, {} steps appended out of {}. {} skipped frames due to missing data, {} due to duplicate data and {} due to heat map limits'.format(
+                ep_counter, len(states) ,step_counter, nd_skipped_data, sp_skipped_data, hm_skipped_data))
             starts.pop(-1)
-            print('episode {} appended, {} skipped frames due to missing data or low quality pointclouds'.format(
-                ep_counter, skipped_data))
-            skipped_data = 0
             ep_counter += 1
 
-    np.save(recordings_path + 'heatmaps', heatmaps)
-    np.save(recordings_path + 'states', states)
-    np.save(recordings_path + 'starts', starts)
-    np.save(recordings_path + 'actions', actions)
+    np.save(dirpath + 'heatmaps', heatmaps)
+    np.save(dirpath + 'states', states)
+    np.save(dirpath + 'starts', starts)
+    np.save(dirpath + 'actions', actions)
 
 if job == 'concat_recodrings':
     act1 = np.load('/home/graphics/git/SmartLoader/saved_experts/saved_ep/ob.npy')
@@ -308,3 +312,4 @@ if job == 'xy_labels_saver':
             labels = np.concatenate((labels, label), axis=1)
 
     np.save(recordings_path + 'labels', labels)
+

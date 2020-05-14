@@ -30,3 +30,8 @@ register(
     id='PushAlgoryxEnv-v0',
     entry_point='gym_SmartLoader.envs.SmartLoaderEnvs_dir:PushAlgoryx'
 )
+
+register(
+    id='PushStonesHeatMapEnv-v0',
+    entry_point='gym_SmartLoader.envs.SmartLoaderEnvs_dir:PushStonesHeatMapEnv'
+)

@@ -10,12 +10,9 @@ import numpy as np
 import talos
 from os import walk
 
-
 # translate chosen action (array) to joystick action (dict)
 
-
 def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_model=False, train=True):
-
 
     if new_model:   ## create new sequential keras model
 
@@ -75,7 +72,8 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
 
     else:   ### load existing sequential model
 
-        model = load_model('/home/sload/git/SmartLoader/saved_experts/pos_est_model_valsplit0.05')
+        model = load_model('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/KERAS_pos_est_model')
+        # model = load_model('/home/sload/git/SmartLoader/saved_experts/pos_est_model_valsplit0.05')
 
         heat_maps = heat_maps.reshape(len(heat_maps), 1, 100, 16)
 
@@ -91,7 +89,8 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
             epochs=epochs,
             validation_split=0.05
         )
-        model.save('/home/sload/git/SmartLoader/saved_experts/pos_est_model_valsplit0.05_2')
+        # model.save('/home/sload/git/SmartLoader/saved_experts/pos_est_model_valsplit0.05_2')
+        model.save('/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/KERAS_pos_est_model')
 
     else:
 
@@ -102,12 +101,13 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
             index = np.random.randint(len(heat_maps))
             h_map = heat_maps[index, :, :]
 
-            est_pos = model.predict(h_map.reshape(1, 1, 100, 7))
+            # est_pos = model.predict(h_map.reshape(1, 1, 100, 7))
+            est_pos = model.predict(h_map.reshape(1, 1, 100, 16))
 
             ax.imshow(h_map)
 
             plt.scatter(est_pos[0][0], est_pos[0][1], s=100, c='red', marker='o')
-            plt.scatter(est_pos[0][2], est_pos[0][3], s=100, c='red', marker='o')
+            # plt.scatter(est_pos[0][2], est_pos[0][3], s=100, c='red', marker='o')
 
             plt.show()
 
@@ -117,17 +117,22 @@ def Supervised_learning(heat_maps, labels, nn_size, batch_size, lr, epochs, new_
 ###########  labels[550]  #####  model.predict(states[550].reshape([1,ob_size]))
 def main():
 
-    expert_path = '/home/sload/xy_locations_03_05/'
+    # expert_path = '/home/sload/xy_locations_03_05/'
+    #
+    # heat_maps = np.load(expert_path + 'heatmap.npy', allow_pickle=True)
+    # labels = np.load(expert_path + 'labels.npy', allow_pickle=True)
 
-    heatmap = np.load(expert_path + 'heatmap.npy', allow_pickle=True)
-    labels = np.load(expert_path + 'labels.npy', allow_pickle=True)
+    expert_path = '/home/graphics/git/SmartLoader/saved_experts/HeatMap/real_life/Push_49_ep/full_map/'
+
+    heat_maps = np.load(expert_path+'pos_approx_map.npy')
+    labels = np.load(expert_path+'pos_approx_label.npy')
 
     nn_size = [128, 32]
     batch_size = 64
     learning_rate = 4e-5
     epochs = 2000
 
-    Supervised_learning(heatmap, labels, nn_size, batch_size, learning_rate, epochs)
+    Supervised_learning(heat_maps, labels, nn_size, batch_size, learning_rate, epochs)
 
 if __name__ == '__main__':
     main()

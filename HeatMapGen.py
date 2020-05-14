@@ -4,6 +4,7 @@ import time
 from keras.models import load_model
 
 show_cropped_point_cloud = False
+
 show_height_map = False
 
 def HeatMap(p_cloud, scan_y_range=[-0.85,0.85], x_res = 100):
@@ -56,10 +57,13 @@ def HeatMap(p_cloud, scan_y_range=[-0.85,0.85], x_res = 100):
     x_A_coeff = (x_res-1)/3
     x_B_coeff = (x_res-1)/2
 
-    y_A_coeff = (num_of_stripes-1)/1.6
-    y_B_coeff = (num_of_stripes-1)/2
+    y_A_coeff = (num_of_stripes - 1) / (scan_y_range[1] - scan_y_range[0])
+    y_B_coeff = -scan_y_range[0] * y_A_coeff
 
     for point in range(pc_len):
+        if (y[point] < scan_y_range[0]) | (y[point] > scan_y_range[1] + 0.1):
+            continue
+
         x_ind = int(np.round(x[point]*x_A_coeff+x_B_coeff))
         y_ind = int(np.round(y[point]*y_A_coeff+y_B_coeff))
         if z[point] > h_map[x_ind,y_ind]:
@@ -73,3 +77,4 @@ def HeatMap(p_cloud, scan_y_range=[-0.85,0.85], x_res = 100):
     frame_time = time.time() - start_time
 
     return h_map, frame_time
+
