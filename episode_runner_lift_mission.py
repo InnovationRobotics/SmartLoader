@@ -17,7 +17,7 @@ def show_map(hmap):
 
 
 def de_norm_states(des):
-    des = [des[0] * 3, des[1] * 130 + 150, des[2] * 230 + 50]  # un-normalize
+    des = [des[0] * 3, des[1] * 130 + 150, des[2] * 230 + 50]
     return des
 
 
@@ -26,20 +26,20 @@ def normalize_map(h_map):
     return norm_hmap
 
 
-def map_clipper(hmap, shovle_pos, x_clip=None, x_offset=None, y_clip=None):
+def map_clipper(hmap, shovel_pos, x_clip=None, x_offset=None, y_clip=None):
 
     y_map_clip = 30
 
     if x_clip:
-        x_map_min = int(shovle_pos[0] * 100 + x_offset)
-        x_map_max = int(shovle_pos[0] * 100 + x_offset + x_clip)
+        x_map_min = int(shovel_pos[0] * 100 + x_offset)
+        x_map_max = int(shovel_pos[0] * 100 + x_offset + x_clip)
     else:
         x_map_min = 0
         x_map_max = 260
 
     if y_clip:
-        y_map_min = int(shovle_pos[1] * 100 - y_clip)
-        y_map_max = int(shovle_pos[1] * 100 + y_clip)
+        y_map_min = int(shovel_pos[1] * 100 - y_clip)
+        y_map_max = int(shovel_pos[1] * 100 + y_clip)
 
     end_offset = max(x_map_max-260,0)
 
@@ -61,18 +61,19 @@ def map_clipper(hmap, shovle_pos, x_clip=None, x_offset=None, y_clip=None):
     return clipped_heatmap
 
 
-def desired_config(obs, x_model, lift_pitch_model):
+def desired_config(obs, x_model, lift_pitch_model, show_h_map=False):
     # from model predict desired configuration
     blade_pos = [obs['x_blade'], obs['y_blade']]
     hmap = obs['h_map']
 
     norm_hmap = normalize_map(hmap)
 
-    Lift_Pitch_hmap = map_clipper(norm_hmap, blade_pos, x_clip=50, x_offset=20, y_clip=30)
+    Lift_Pitch_hmap = map_clipper(norm_hmap, blade_pos, x_clip=100, x_offset=-60, y_clip=30)
 
-    show_map(Lift_Pitch_hmap)
+    if show_h_map:
+        show_map(Lift_Pitch_hmap)
 
-    Thrust_hmap = map_clipper(norm_hmap, blade_pos, y_clip=30)
+    Thrust_hmap = map_clipper(norm_hmap, blade_pos, x_clip=100, x_offset=-60, y_clip=30)
 
     Lift_Pitch_hmap = Lift_Pitch_hmap.reshape(1, 1, Lift_Pitch_hmap.shape[0], Lift_Pitch_hmap.shape[1])
     Thrust_hmap = Thrust_hmap.reshape(1, 1, Thrust_hmap.shape[0], Thrust_hmap.shape[1])
@@ -82,8 +83,8 @@ def desired_config(obs, x_model, lift_pitch_model):
 
     lifts = L_P_des[[np.arange(0,10,2)]] * 100 + 150
     pitches = L_P_des[[np.arange(1,10,2)]] * 230 + 50
-    lift_des = lifts[0]
-    pitch_des = pitches[0]
+    lift_des = lifts[-1]-5
+    pitch_des = pitches[-1]
     x_des = x_deses[-1]
 
     # x_err = x_deses - obs['x_blade']
@@ -95,6 +96,7 @@ def desired_config(obs, x_model, lift_pitch_model):
 
     return [x_des, obs['y_blade'], lift_des, pitch_des]
 
+
 def pile_pos(obs):
     h_map = obs['h_map']
     # shovel_pos = [obs['x_blade'], obs['y_blade']]
@@ -105,6 +107,7 @@ def pile_pos(obs):
     x_ind = np.unravel_index(np.argmax(clipped_map, axis=None), clipped_map.shape)[0]
     max_x_pos = (x_ind+blade_x_pos+20)/100
     z_max = np.max(clipped_map)
+
     return max_x_pos, z_max
 
 
@@ -153,8 +156,8 @@ if __name__ == '__main__':
     env = SmartLoader()
     obs = env.get_obs()
 
-    x_model = load_model('/home/sload/Downloads/lift_task_x_model_5_pred')
-    lift_pitch_model = load_model('/home/sload/Downloads/lift_task_LP_model_5_pred')
+    x_model = load_model('/home/sload/Downloads/lift_task_x_model_5_pred_b_wind')
+    lift_pitch_model = load_model('/home/sload/Downloads/lift_task_LP_model_5_pred_b_wind')
 
     X, Y, X_des, Y_des = [], [], [], []
     steps = 0
@@ -162,24 +165,29 @@ if __name__ == '__main__':
     # while True:
     #     obs = env.get_obs()
     #     des = desired_config(obs, x_model, lift_pitch_model)
-    #     print('curr lift = ', obs['lift'], 'des lift = ', des[2])
+    #     print('curr lift = ', obs['lift'], 'des lift = ', des[2], 'curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
     #     # print('curr pitch = ', obs['pitch'], 'des pitch = ', des[3])
     #     # print('curr x = ', obs['x_blade'], 'des x = ', des[0])
 
     for step in range(3):
 
+        # pile peak x location and z height
         x_pile, z_pile = pile_pos(obs)
 
         ##### load mission #####
         load_pid = LLC_pid.LoadPid()
         counter = 0
-        # pile = find_pile(obs)
         last_loc = obs['x_vehicle']
 
         while True:
             des = desired_config(obs, x_model, lift_pitch_model)
             # print('curr lift = ', obs['lift'], 'des lift = ', des[2])
             action = load_pid.step(obs, des, x_pile)
+
+            # # if lift demand high, son't move' only lift
+            # if (des[2] - obs['lift']) > 7:
+            #     action[1] = 0
+
             obs = env.step(action)
 
             # save locations
@@ -200,7 +208,8 @@ if __name__ == '__main__':
             #     counter = 0
             #     last_loc = obs['x_vehicle']
 
-            print('x pile = ', x_pile, 'x cur = ', obs['x_blade'], 'lift des = ', des[2])
+            print('pitch des = ', des[3], 'cur = ', obs['pitch'], 'lift des = ', des[2], 'cur = ', obs['lift'])
+            # print('x pile = ', x_pile, 'x cur = ', obs['x_blade'], 'lift des = ', des[2])
             if obs['x_blade'] >= x_pile - 0.1 and obs['z_blade'] - z_pile >= 0.35:  # obs['lift'] >= 190:
                 break
 
@@ -211,7 +220,7 @@ if __name__ == '__main__':
         load_pid.speed_pid.save_plot('speed load {}'.format(str(step)), 'speed')
 
         ##### dump mission #####
-        des = [obs['x_blade'], obs['y_blade'], 210, 220]
+        des = [obs['x_blade'], obs['y_blade'], 200, 220]
         dump_pid = LLC_pid.DumpPid(des)
         while True:
             action = dump_pid.step(obs)
@@ -233,7 +242,7 @@ if __name__ == '__main__':
         dump_pid.pitch_pid.save_plot('pitch dump {}'.format(str(step)), 'pitch')
 
         ##### drive backwards #####
-        des = [obs['x_vehicle']-0.5, obs['y_vehicle'], 175, 140]
+        des = [obs['x_vehicle']-0.5, obs['y_vehicle'], 180, 140]
         back_pid = LLC_pid.DriveBackPid()
         back_and_lower_pid = LLC_pid.DriveBackAndLowerBladePid(des)
 

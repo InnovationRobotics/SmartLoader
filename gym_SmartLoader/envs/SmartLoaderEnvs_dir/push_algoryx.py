@@ -71,6 +71,8 @@ class PushAlgoryx(BaseEnv):
 
         self.total_reward = 0.0
         self.last_best_model = None
+        self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':315, 'pitchMax':325}
+        # self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
 
     # CALLBACKS
     def subscribe_to_topics(self):
@@ -291,7 +293,7 @@ class PushAlgoryx(BaseEnv):
         reset = 'No'
         final_reward = 0
         current_pos = self.world_state['VehiclePos']
-        threshold = 8
+        threshold = 6
         if self.out_of_boarders():
             done = True
             reset = 'out of boarders' + np.copy(self.world_state['VehiclePos']).__str__()
@@ -372,19 +374,64 @@ class PushAlgoryx(BaseEnv):
         joyactions = np.zeros(6)
 
         joyactions[2] = joyactions[5] = 1
+        #self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
+        if bool(self.limited_scene):
+            # if 'notBW' in self.limited_scene:
+            agent_action[1] = max(agent_action[1], 0.001) if 'notBW' in self.limited_scene and self.limited_scene['notBW'] else agent_action[1]
+            self.drive(agent_action,joyactions)
 
-        joyactions[0] = agent_action[0]  # vehicle turn
-        joyactions[3] = agent_action[2]  # blade pitch
-        joyactions[4] = agent_action[3]  # arm up/down
+            #     if self.limited_scene['notBW'] and (agent_action[1]<0):
+            #         joyactions[2]=0
+            #     else:
+            #         self.drive(agent_action, joyactions)
+            # else:
+            #     self.drive(agent_action, joyactions)
 
+            if 'liftMax' in self.limited_scene:
+                if (self.world_state['ArmHeight'] > self.limited_scene['liftMax']) and (agent_action[3] < 0):
+                    joyactions[4] = 0
+                else: ## CHECKED - Neg value higher arm
+                    joyactions[4] = agent_action[3]  # arm up/down
+
+            if 'pitchMin' in self.limited_scene:
+                if (self.world_state['BladePitch'] < self.limited_scene['pitchMin']) and (agent_action[2] < 0):
+                    joyactions[3] = 0 ### CHECKED - Neg value turns pitch toward ground
+                else:
+                    joyactions[3] = agent_action[2]
+
+            if 'pitchMax' in self.limited_scene:
+                if (self.world_state['BladePitch'] > self.limited_scene['pitchMax']) and (agent_action[2] > 0):
+                    joyactions[3] = 0 ### CHECKED - Pos value turns pitch toward sky
+                else:
+                    joyactions[3] = agent_action[2]
+
+            if 'yawMax' in self.limited_scene:
+                if (self.world_state['euler_ypr'].item(0) > self.limited_scene['yawMax']) and (agent_action[0] > 0):
+                    joyactions[0] = 0 ### Positive Value turns right
+                else:
+                    joyactions[0] = agent_action[0]
+
+            if 'yawMin' in self.limited_scene:
+                if (self.world_state['euler_ypr'].item(0) < self.limited_scene['yawMin']) and (agent_action[0] < 0):
+                    joyactions[0] = 0 ### Negative Value turns left
+                else:
+                    joyactions[0] = agent_action[0]
+        else:
+            joyactions[0] = agent_action[0]  # vehicle turn
+            joyactions[3] = agent_action[2]  # blade pitch
+            joyactions[4] = agent_action[3]  # arm up/down
+
+            self.drive(agent_action, joyactions)
+
+        return joyactions
+
+    def drive(self, agent_action, joyactions):
         if agent_action[1] < 0:  # drive backwards
             joyactions[2] = 2 * agent_action[1] + 1
             # joyactions[2] = -2*agent_action[1] - 1
 
         elif agent_action[1] > 0:  # drive forwards
             joyactions[5] = -2 * agent_action[1] + 1
-
-        return joyactions
 
     def blade_down(self):
         # take blade down near ground at beginning of episode
