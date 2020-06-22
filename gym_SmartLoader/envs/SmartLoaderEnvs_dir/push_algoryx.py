@@ -34,7 +34,8 @@ class PushAlgoryx(BaseEnv):
         # self.last_obs = np.array([])
         self.TIME_STEP = 0.1  # 100 mili-seconds
         self._start_pos = np.array([12.86, -23.23, 1.578])
-        self.ref_pos = np.array([12.86, -14.66, 1.5])
+        self.ref_pos = np.array([12.86, 2, 1.5])
+        # self.ref_pos = np.array([12.86, -14.66, 1.5])
         # self.ref_pos = np.array([15.5, -22.8, 1.5])
         self._boarders = [9, 16, -28, -10]
 
@@ -49,7 +50,7 @@ class PushAlgoryx(BaseEnv):
         self.N_CHANNELS = 1
         self.MAP_SIZE_Y = 291  # 260
         self.MAP_SIZE_X = 150  # 160
-        self.observation_space = spaces.Box(low=0, high=255,
+        self.observation_space = spaces.Box(low=0, high=512,
                                             shape=(43657,), dtype=np.uint8)
 
         # self.observation_space = spaces.Box(low=0, high=255,
@@ -71,7 +72,12 @@ class PushAlgoryx(BaseEnv):
 
         self.total_reward = 0.0
         self.last_best_model = None
-        self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':315, 'pitchMax':325}
+        self.limited_scene = {}
+        # self.limited_scene = {'notBW': True, 'liftMin': 110, 'liftMax': 130, 'pitchMin': 300, 'pitchMax': 330}
+        # self.limited_scene = {'notBW': True, 'liftMax': 110,  'pitchMin':360, 'pitchMax':400}
+        # self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':360, 'pitchMax':325}
+        # self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':320, 'pitchMax':325}
+        # self.limited_scene = {'notBW': True, 'liftMax': 110, 'pitchMin':315, 'pitchMax':325}
         # self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
 
     # CALLBACKS
@@ -108,6 +114,10 @@ class PushAlgoryx(BaseEnv):
 
             self.world_state['GridMap'] = hmap
 
+    def get_obs(self):
+        obs = self.update_state()
+        return obs
+
     def reset(self):
 
         # wait for topics to update
@@ -142,19 +152,20 @@ class PushAlgoryx(BaseEnv):
 
         # self.joycon = 'waiting'
 
-
-
         # # blade down near ground
         # for _ in range(30000):
         #     self.blade_down()
-        while self.world_state['ArmHeight'] > self.DESIRED_ARM_HEIGHT:
-            self.blade_down()
+
+        # while self.world_state['ArmHeight'] > self.DESIRED_ARM_HEIGHT:
+        #     self.blade_down()
 
         # current state
         self._obs = self.update_state()
 
         # stack all observation for one very long input
-        return np.array(np.hstack(self._obs.values()))
+        # return np.array(np.hstack(self._obs.values()))
+        return self._obs
+
 
     def current_obs(self):
         # wait for sim to update and obs to be different than last obs
@@ -176,7 +187,12 @@ class PushAlgoryx(BaseEnv):
         return obs
 
     def update_state(self):
-        h_map = self.world_state['GridMap']
+        h_map = None
+        while h_map is None:
+            try:
+                h_map = self.world_state['GridMap']
+            except:
+                pass
         arm_lift = self.world_state['ArmHeight']
         arm_pitch = self.world_state['BladePitch']
         x_vehicle = self.world_state['VehiclePos'].item(0)
@@ -198,25 +214,26 @@ class PushAlgoryx(BaseEnv):
         max_dist = 15
         normalized_dist = dist / max_dist
 
-        #lift
+        # lift
         arm_lift_max = 237
         arm_lift_min = 85
         arm_lift_interval = arm_lift_max - arm_lift_min
 
-        #pitch
+        # pitch
         arm_pitch_max = 510
         arm_pitch_min = 204
-        arm_pitch_opt = 310
+        arm_pitch_opt = 315
         arm_pitch_interval = arm_pitch_max - arm_pitch_min
 
         # multiply by factor to make blade pose more important
-        normalized_pitch = 2.0 * (arm_pitch_opt - arm_pitch) / arm_pitch_interval
+        factor = 2.0
+        normalized_pitch = factor  * 2.0 * (arm_pitch_opt - arm_pitch) / arm_pitch_interval
         # normalized_lift = factor *  (arm_lift_max - arm_lift) / arm_lift_interval
-        normalized_lift =(arm_lift - arm_lift_min) / arm_lift_interval
+        normalized_lift = factor *  (arm_lift - arm_lift_min) / arm_lift_interval
 
         mse = np.mean(np.square([normalized_lift, normalized_pitch, normalized_dist])).squeeze()
 
-        malus = (- mse) * self.steps  / (self.MAX_STEPS ** 2.0)
+        malus = (- mse) * self.steps / (self.MAX_STEPS ** 2.0)
 
         # print(malus)
 
@@ -225,6 +242,7 @@ class PushAlgoryx(BaseEnv):
     def step(self, action):
         # if action:
         self.do_action(action)
+
 
         # for even time steps
         self.time_stuff()
@@ -257,8 +275,9 @@ class PushAlgoryx(BaseEnv):
         self.last_final_reward = final_reward
 
         # return np.array(self._obs['h_map']), step_reward, done, info
-        return np.array(np.hstack(self._obs.values())), step_reward, done, info
-        # return np.array(self.obs).flatten(), step_reward, done, info
+        # return np.array(np.hstack(self._obs.values())), step_reward, done, info
+        # return np.array(self._obs).flatten(), step_reward, done, info
+        return self._obs, step_reward, done, info
 
     def time_stuff(self):
         self.current_time = time.time()
@@ -293,7 +312,9 @@ class PushAlgoryx(BaseEnv):
         reset = 'No'
         final_reward = 0
         current_pos = self.world_state['VehiclePos']
-        threshold = 6
+        # print('*** ', self.world_state['BladePitch'])
+        # threshold = 7.5
+        threshold = 1
         if self.out_of_boarders():
             done = True
             reset = 'out of boarders' + np.copy(self.world_state['VehiclePos']).__str__()
@@ -301,13 +322,13 @@ class PushAlgoryx(BaseEnv):
             final_reward = - PushAlgoryx.FINAL_REWARD
             self.episode.killSimulation()
             self.simOn = False
-        elif self.steps > PushAlgoryx.MAX_STEPS:
-            done = True
-            reset = 'limit time steps'
-            print('----------------', reset, '----------------')
-            # final_reward = - PushAlgoryx.FINAL_REWARD
-            self.episode.killSimulation()
-            self.simOn = False
+        # elif self.steps > PushAlgoryx.MAX_STEPS:
+        #     done = True
+        #     reset = 'limit time steps'
+        #     print('----------------', reset, '----------------')
+        #     # final_reward = - PushAlgoryx.FINAL_REWARD
+        #     self.episode.killSimulation()
+        #     self.simOn = False
         elif np.linalg.norm(current_pos[0:2] - self.ref_pos[0:2]) < threshold:
             done = True
             reset = 'goal achieved'
@@ -315,6 +336,13 @@ class PushAlgoryx(BaseEnv):
             self.episode.killSimulation()
             self.simOn = False
             final_reward = PushAlgoryx.FINAL_REWARD
+        # elif self.world_state['BladePitch'] < 290:
+        #     done = True
+        #     reset = 'Blade Facing down'
+        #     print('----------------', reset, '----------------')
+        #     self.episode.killSimulation()
+        #     self.simOn = False
+        #     final_reward = - PushAlgoryx.FINAL_REWARD * 10.0
         # elif self.world_state['ArmHeight'] < 233 and self.steps > PushAlgoryx.MAX_STEPS / 2.0:
         #     done = True
         #     reset = 'Arm Too High For Too Long'
@@ -370,58 +398,62 @@ class PushAlgoryx(BaseEnv):
 
     def AgentToJoyAction(self, agent_action):
         # translate chosen action (array) to joystick action (dict)
-
         joyactions = np.zeros(6)
-
         joyactions[2] = joyactions[5] = 1
-        #self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
+
+        # self.limited_scene = {'notBW': False, 'liftMax': 110, 'pitchMin':204, 'pitchMax':400}
         if bool(self.limited_scene):
             # if 'notBW' in self.limited_scene:
-            agent_action[1] = max(agent_action[1], 0.001) if 'notBW' in self.limited_scene and self.limited_scene['notBW'] else agent_action[1]
-            self.drive(agent_action,joyactions)
+            agent_action[1] = max(agent_action[1], 0.001) if 'notBW' in self.limited_scene and self.limited_scene[
+                'notBW'] else agent_action[1]
 
-            #     if self.limited_scene['notBW'] and (agent_action[1]<0):
-            #         joyactions[2]=0
-            #     else:
-            #         self.drive(agent_action, joyactions)
+            print('*** ', self.world_state['ArmHeight'])
+            assert 'liftMax' in self.limited_scene
+            assert 'liftMin' in self.limited_scene
+
+            joyactions[4] = 0.1
+
+            # if (self.world_state['ArmHeight'] > self.limited_scene['liftMax']) and (agent_action[3] > 0):
+            #     # Arm too high
+            #     joyactions[4] = -0.1
+            # elif (self.world_state['ArmHeight'] < self.limited_scene['liftMin']) and (agent_action[3] < 0):
+            #     # Arm too low
+            #     joyactions[4] = 0.1
             # else:
-            #     self.drive(agent_action, joyactions)
+            #     joyactions[4] = -agent_action[3]
 
-            if 'liftMax' in self.limited_scene:
-                if (self.world_state['ArmHeight'] > self.limited_scene['liftMax']) and (agent_action[3] < 0):
-                    joyactions[4] = 0
-                else: ## CHECKED - Neg value higher arm
-                    joyactions[4] = agent_action[3]  # arm up/down
+            assert 'pitchMin' in self.limited_scene
+            assert 'pitchMax' in self.limited_scene
+            if (self.world_state['BladePitch'] < self.limited_scene['pitchMin']) and (agent_action[2] < 0):
+                joyactions[3] = 0.01  ### CHECKED - Neg value turns pitch toward ground
+                # print("*** pitch = " , self.world_state['BladePitch'])
+            elif (self.world_state['BladePitch'] > self.limited_scene['pitchMax']) and (agent_action[2] > 0):
+                joyactions[3] = -0.01  ### CHECKED - Pos value turns pitch toward sky
+            else:
+                joyactions[3] = agent_action[2]
 
-            if 'pitchMin' in self.limited_scene:
-                if (self.world_state['BladePitch'] < self.limited_scene['pitchMin']) and (agent_action[2] < 0):
-                    joyactions[3] = 0 ### CHECKED - Neg value turns pitch toward ground
-                else:
-                    joyactions[3] = agent_action[2]
-
-            if 'pitchMax' in self.limited_scene:
-                if (self.world_state['BladePitch'] > self.limited_scene['pitchMax']) and (agent_action[2] > 0):
-                    joyactions[3] = 0 ### CHECKED - Pos value turns pitch toward sky
-                else:
-                    joyactions[3] = agent_action[2]
-
-            if 'yawMax' in self.limited_scene:
-                if (self.world_state['euler_ypr'].item(0) > self.limited_scene['yawMax']) and (agent_action[0] > 0):
-                    joyactions[0] = 0 ### Positive Value turns right
-                else:
-                    joyactions[0] = agent_action[0]
-
-            if 'yawMin' in self.limited_scene:
-                if (self.world_state['euler_ypr'].item(0) < self.limited_scene['yawMin']) and (agent_action[0] < 0):
-                    joyactions[0] = 0 ### Negative Value turns left
-                else:
-                    joyactions[0] = agent_action[0]
+            # assert 'yawMax' in self.limited_scene
+            # assert 'yawMin' in self.limited_scene
+            #
+            # if (self.world_state['euler_ypr'].item(0) > self.limited_scene['yawMax']) and (agent_action[0] > 0):
+            #     joyactions[0] = 0  ### Positive Value turns right
+            # elif (self.world_state['euler_ypr'].item(0) < self.limited_scene['yawMin']) and (agent_action[0] < 0):
+            #     joyactions[0] = 0  ### Negative Value turns left
+            # else:
+            #     joyactions[0] = agent_action[0]
         else:
             joyactions[0] = agent_action[0]  # vehicle turn
             joyactions[3] = agent_action[2]  # blade pitch
             joyactions[4] = agent_action[3]  # arm up/down
 
-            self.drive(agent_action, joyactions)
+        # self.drive(agent_action, joyactions)
+
+        if agent_action[1] < 0:  # drive backwards
+            joyactions[2] = 2 * agent_action[1] + 1
+            # joyactions[2] = -2*agent_action[1] - 1
+
+        elif agent_action[1] > 0:  # drive forwards
+            joyactions[5] = -2 * agent_action[1] + 1
 
         return joyactions
 

@@ -25,6 +25,135 @@ def quatToEuler(quat):
 
     return np.array([X, Y, Z])
 
+class PushPidAlgoryx:
+    def __init__(self):
+        self.TIME_STEP = 10e-6  # 10 mili
+
+        # Define PIDs
+        # armHeight = lift = [down:145 - up:265]
+        self.lift_pid = PID(P=0.0005, I=0.0001, D=0, saturation=0.8)
+        # self.lift_pid = PID(P=1, I=0, D=0, saturation=1)
+        self.lift_pid.setSampleTime(self.TIME_STEP)
+
+        # armShortHeight = pitch = [up:70 - down:265]
+        self.pitch_pid = PID(P=0.005, I=0.0001, D=0, saturation=1)
+        # self.pitch_pid = PID(P=1, I=0, D=0, saturation=1)
+        self.pitch_pid.setSampleTime(self.TIME_STEP)
+
+        # steer PID
+        # self.steer_pid = PID(P=0.0002, I=0, D=-0.00005, saturation=0.008)
+        # self.steer_pid.setSampleTime(self.TIME_STEP)
+
+        # speed PID
+        self.speed_pid = PID(P=0.05, I=0, D=0.001, saturation=0.6)
+        self.speed_pid.setSampleTime(self.TIME_STEP)
+
+    def step(self, obs, des):
+        current_lift = obs['arm_lift'].item(0)
+        current_pitch = obs['arm_pitch'].item(0)
+
+        # des = [x_vehicle, y_vehicle, lift, pitch]
+        self.lift_pid.SetPoint = des[2]  # desired lift
+        self.pitch_pid.SetPoint = des[3]  # desired pitch
+
+        # # for connecting lift and speed demands and actions
+        # lift_error = abs(des[2] - current_lift)
+        # lift_speed_factor = np.clip(5/abs(des[2] - current_lift), 0.35, 1)
+        # print(lift_speed_factor)
+
+        # speed error: x_des - x_current
+        x_des, y_des = des[0], des[1]
+        current_speed = 30+obs['y_vehicle']
+        self.speed_pid.SetPoint = x_des
+
+        # steer error: angle between desired and current location - current blade orientation
+        # self.steer_pid.SetPoint = np.math.degrees(np.math.atan2(y_des-obs['y_blade'], x_des-obs['x_blade']))
+        # current_steer = np.math.degrees(np.math.atan2(obs['y_blade']-obs['y_vehicle'], obs['x_blade']-obs['x_vehicle']))
+
+        # print('current steer = ', current_steer, 'desired steer = ', self.steer_pid.SetPoint)
+
+        # pid update
+        if current_lift < 150:
+            lift_action = 0
+        else:
+            lift_action = self.lift_pid.update(current_lift)
+        pitch_action = self.pitch_pid.update(current_pitch)
+        # steer_action = self.steer_pid.update(current_steer)
+        speed_action = self.speed_pid.update(current_speed)
+
+        # fix lift action
+        if -1 <= lift_action < 0:
+            lift_action = -lift_action
+        else:
+            lift_action = lift_action - 1
+        # for crazy stuff
+        # if 0 < lift_action <= 1:
+        #     lift_action = -lift_action
+        # else:
+        #     lift_action = lift_action - 1
+
+        # do action
+        action = np.array([0, speed_action, pitch_action, lift_action])
+
+        # save data
+        self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
+        self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+        # self.steer_pid.save_data(current_steer, steer_action, self.steer_pid.SetPoint)
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
+
+        return action
+
+
+class DriveBackAndLiftPidAlgoryx:
+    def __init__(self, des):
+        self.TIME_STEP = 10e-6  # 10 mili
+
+        # Define PIDs
+        # speed PID
+        self.speed_pid = PID(P=0.1, I=0.01, D=0.01, saturation=0.6)
+        self.speed_pid.setSampleTime(self.TIME_STEP)
+
+        # armHeight = lift = [down:145 - up:265]
+        self.lift_pid = PID(P=0.005, I=0, D=0, saturation=1)
+        self.lift_pid.setSampleTime(self.TIME_STEP)
+
+        # armShortHeight = pitch = [up:70 - down:265]
+        self.pitch_pid = PID(P=-0.005, I=0, D=0, saturation=1)
+        self.pitch_pid.setSampleTime(self.TIME_STEP)
+
+        # des = [x_blade, y_blade, lift, pitch]
+        self.lift_pid.SetPoint = des[2]  # desired lift
+        self.pitch_pid.SetPoint = des[3]  # desired pitch
+
+    def step(self, obs, des, steer=True):
+        current_lift = obs['lift']
+        current_pitch = obs['pitch']
+
+        # speed error: x_des - x_current
+        x_des, y_des = des[0], des[1]
+        current_speed = obs['x_vehicle']
+        self.speed_pid.SetPoint = x_des
+
+        # pid update
+        lift_action = self.lift_pid.update(current_lift)
+        pitch_action = self.pitch_pid.update(current_pitch)
+
+        # if got to des pos, stop driving but continue blade movement
+        # if obs['x_vehicle'] <= x_des:
+        #     speed_action = 0
+        # else:
+        speed_action = self.speed_pid.update(current_speed)
+
+        # do action
+        action = np.array([0, speed_action, pitch_action, lift_action])
+
+        # save data
+        self.speed_pid.save_data(current_speed, speed_action, self.speed_pid.SetPoint)
+        self.lift_pid.save_data(current_lift, lift_action, self.lift_pid.SetPoint)
+        self.pitch_pid.save_data(current_pitch, pitch_action, self.pitch_pid.SetPoint)
+
+        return action
+
 
 class PushPid:
     def __init__(self):
@@ -303,10 +432,10 @@ class PID:
             self.PTerm = self.Kp * error
             self.ITerm += error * delta_time
 
-            if self.ITerm < -self.windup_guard:
-                self.ITerm = -self.windup_guard
-            elif self.ITerm > self.windup_guard:
-                self.ITerm = self.windup_guard
+            # if self.ITerm < -self.windup_guard:
+            #     self.ITerm = -self.windup_guard
+            # elif self.ITerm > self.windup_guard:
+            #     self.ITerm = self.windup_guard
 
             self.DTerm = 0.0
             if delta_time > 0:
@@ -352,5 +481,5 @@ class PID:
         ax_state.plot(x, self._setPoint, color='red')
 
         # save
-        fig.savefig('/home/sload/git/SmartLoader/LLC/plots/' + fileName)
+        fig.savefig('/home/iaiai/git/SmartLoader/LLC/plots/' + fileName)
         print('figure saved!')

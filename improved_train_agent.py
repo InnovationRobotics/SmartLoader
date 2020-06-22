@@ -9,15 +9,16 @@ import time
 import numpy as np
 import tensorflow as tf
 from typing import Dict
+from keras.models import load_model
+from matplotlib import pyplot as plt
 #from tensor_board_cb import TensorboardCallback
 from stable_baselines.common.callbacks import CallbackList, CheckpointCallback, EvalCallback
 from stable_baselines.common.evaluation import evaluate_policy
 import gym_SmartLoader.envs
-
+from LLC import LLC_pid
 
 from stable_baselines.common.policies import ActorCriticPolicy, register_policy, nature_cnn
 from stable_baselines.sac.policies import SACPolicy, gaussian_entropy, gaussian_likelihood, apply_squashing_func, mlp, nature_cnn
-
 
 # for custom callbacks stable-baselines should be upgraded using -
 # pip3 install stable-baselines[mpi] --upgrade
@@ -345,6 +346,7 @@ class CheckEvalCallback(BaseCallback):
             #            self._ep_rew.append(env.total_reward)
             if len(self._ep_rew) % 10 == 0:
                 self._mean_10_ep = np.mean(self._ep_rew[-11:-1])
+                self._ep_rew = []
         self._last_total_reward = env.total_reward
 
         #rew = self.locals['self'].episode_reward[0]
@@ -509,7 +511,7 @@ def build_model(algo, policy, env_name, log_dir, expert_dataset=None):
 
 
         model = SAC(CustomSacCnnMlpPolicy, env=env, gamma=0.99, learning_rate=1e-4, buffer_size=50000,
-                    learning_starts=1000, train_freq=10, batch_size=1,
+                    learning_starts=1000, train_freq=100, batch_size=1,
                     tau=0.01, ent_coef='auto', target_update_interval=1,
                     gradient_steps=1, target_entropy='auto', action_noise=None,
                     random_exploration=0.0, verbose=1, tensorboard_log=log_dir,
@@ -572,18 +574,162 @@ def record(env):
         episode_rewards.append(episode_reward)
     data_saver(obs, actions, rewards, dones, episode_rewards)
 
+def h_map_func(obs, pass_num):
+
+    hmap = obs['h_map']
+    hmap = (hmap - np.min(hmap)) / np.ptp(hmap)
+    hmap = hmap.reshape(291, 150)
+
+
+    Ax, Bx = 9.7, 291
+    Ay, By = 6, 0
+    x_new = int(obs['y_vehicle'] * Ax + Bx)
+    y_new = int(obs['x_vehicle'] * Ay + By)
+    # print('xold: ', obs['y_vehicle'], 'xnew: ', x_new, 'yold: ', obs['x_vehicle'], 'ynew: ', y_new)
+
+    pass_offset = -int(pass_num)
+
+    x_hmap = hmap[0:260, y_new - 70:y_new - 10]
+    LP_hmap = hmap[x_new + 70 + pass_offset:x_new + 120 + pass_offset, y_new - 70:y_new - 10]
+    # plt.imshow(LP_hmap)
+    # plt.show(block=False)recg,   # plt.pause(0.01)
+    return x_hmap, LP_hmap
+
+
+def dump_load(env,push_pid):
+    print('dumping load')
+    obs = env.get_obs()
+    des = [obs['y_vehicle'], obs['x_vehicle'], 245, 300]
+    for _ in range(70):
+        action = push_pid.step(obs, des)
+        action[1] = 0
+        obs, _, _, _ = env.step(action)
+        # print('des x: ', des[0], 'x: ', 30 + obs['y_vehicle'], 'des lift: ', des[2], 'lift: ', obs['arm_lift'], 'des pitch: ',
+        #       des[3], 'pitch: ', obs['arm_pitch'])
+
+
+def move_back(env,push_pid):
+    obs = env.get_obs()
+    print('moving back')
+    des = [5, obs['x_vehicle'], 226, 352]
+    for _ in range(70):
+
+        action = push_pid.step(obs, des)
+        obs, _, _, _ = env.step(action)
+        # print('des x: ', des[0], 'x: ', 30 + obs['y_vehicle'], 'des lift: ', des[2], 'lift: ', obs['arm_lift'], 'des pitch: ',
+        #       des[3], 'pitch: ', obs['arm_pitch'])
+        print('des x: ', des[0], 'x: ', 30 + obs['y_vehicle'])
+    push_pid.lift_pid.save_plot('lift', 'lift')
+    push_pid.pitch_pid.save_plot('pitch', 'pitch')
+    push_pid.speed_pid.save_plot('speed', 'speed')
+
 
 def play(save_dir, env):
-    model = SAC.load(save_dir + '/model_dir/sac/test_25_25_14_15', env=env,
-                     custom_objects=dict(learning_starts=0))  ### ADD NUM
-    for _ in range(2):
+    # model = SAC.load(save_dir + '/model_dir/sac/test_25_25_14_15', env=env,
+    #                  custom_objects=dict(learning_starts=0))  ### ADD NUM1
+    # model = SAC.load(save_dir + '/model_dir/sac/test_6_24_17_30', env=env,
+    #                  custom_objects=dict(learning_starts=0))  ### ADD NUM
 
-        obs = env.reset()
+    x_model = load_model('/home/iaiai/git/SmartLoader/Real_agents/new_test_all_recordings_x_model_10_pred')
+    LP_model = load_model('/home/iaiai/git/SmartLoader/Real_agents/new_test_new_recordings_LP_model_10_pred')
+
+    # x_model = load_model('/home/iaiai/git/SmartLoader/Real_agents/lift_task_x_model_10_pred')
+    # LP_model = load_model('/home/iaiai/git/SmartLoader/Real_agents/lift_task_LP_model_10_pred')
+
+
+    obs = env.reset()
+    push_pid = LLC_pid.PushPidAlgoryx()
+    # driveBack_pid = LLC_pid.DriveBackAndLiftPidAlgoryx()
+    # done = False
+
+    # while True: ## test loop
+    #     obs = env.get_obs()
+    #     # action = [0.1, 0, 0, 0]
+    #     # env.step(action)
+    #     # time.sleep(0.05)
+
+        # print('x= ', obs['x_vehicle'], 'y= ', obs['y_vehicle'])
+    num_of_passes = 5
+    x_end = 13
+    for pass_num in range(num_of_passes):
+
+        print('pass number ', pass_num)
         done = False
+
         while not done:
-            action, _states = model.predict(obs)
-            obs, reward, done, info = env.step(action)
-            # print('state: ', obs[0:3], 'action: ', action)
+        # while True:
+        # for _ in range(1000):
+
+            # time.sleep(0.1)
+
+            x_hmap, LP_hmap = h_map_func(obs, pass_num)
+
+            norm_x_des = x_model.predict(x_hmap.reshape(1, 1, 260, 60))
+            norm_LP_des = LP_model.predict(LP_hmap.reshape(1, 1, 50, 60))
+
+            norm_lift_des = norm_LP_des[0, np.arange(0, 20, 2)]
+            norm_pitch_des = norm_LP_des[0, np.arange(1, 20, 2)]
+
+            lift_offset = 32
+            pitch_offest = 10
+
+            lift_des = norm_lift_des[0]*140+140+lift_offset
+            pitch_des = norm_pitch_des[0]*293+220+pitch_offest
+            x_des = norm_x_des[0, 0]*30
+
+            lift = obs['arm_lift']
+            pitch = obs['arm_pitch']
+
+            # des = [x_blade, y_blade, lift, pitch]
+            des = [x_des, obs['x_vehicle'], lift_des, pitch_des]
+
+            action = push_pid.step(obs, des)
+            # if obs['y_vehicle']-x_des < 0.0
+            obs, _, done, _ = env.step(action)
+            # obs = env.get_obs()
+
+            # print('des x: ', x_des, 'x: ', 30+obs['y_vehicle'], 'des lift: ', lift_des, 'lift: ', lift, 'des pitch: ', pitch_des, 'pitch: ', pitch)
+            print('des x: ', des[0], 'x: ', 30 + obs['y_vehicle'])
+            print(action)
+            if 30+obs['y_vehicle'] > x_end:#+pass_num*0.4:
+                done = True
+
+        # push_pid.lift_pid.save_plot('lift', 'lift')
+        # push_pid.pitch_pid.save_plot('pitch', 'pitch')
+        # push_pid.speed_pid.save_plot('speed', 'speed')
+
+        dump_load(env,push_pid)
+        move_back(env,push_pid)
+    # done = False
+    # env.ref_pos = env._start_pos
+    #
+    # while not done:
+    #     x_hmap, LP_hmap = h_map_func(obs)
+    #
+    #     norm_x_des = x_model.predict(x_hmap.reshape(1, 1, 260, 60))
+    #     norm_LP_des = LP_model.predict(LP_hmap.reshape(1, 1, 50, 60))
+    #
+    #     norm_lift_des = norm_LP_des[0, np.arange(0, 20, 2)]
+    #     norm_pitch_des = norm_LP_des[0, np.arange(1, 20, 2)]
+    #
+    #     lift_des = norm_lift_des[0]*140+140
+    #     pitch_des = norm_pitch_des[0]*293+220
+    #     x_des = norm_x_des[0, 0]*260
+    #
+    #     des = [x_des, obs['y_vehicle'], lift_des, pitch_des]
+    #
+    #     action = push_pid.step(obs, des)
+    #
+    #     obs, _, done, _ = env.step(action)
+
+    # for _ in range(2):
+    #
+    #     obs = env.reset()
+    #     done = False
+    #     while not done:
+    #         action, _states = model.predict(obs)
+    #         obs, reward, done, info = env.step(action)
+    #         # print('state: ', obs[0:3], 'action: ', action)
 
 
 def train(algo, policy, pretrain, n_timesteps, log_dir, model_dir, env_name, model_save_interval):
@@ -723,7 +869,7 @@ def add_arguments(parser):
     parser.add_argument('--algo', help='RL Algorithm', default='sac', type=str, required=False, choices=list(ALGOS.keys()))
     parser.add_argument('--policy', help='Network topography', default='CnnMlpPolicy', type=str, required=False, choices=POLICIES)
 
-    parser.add_argument('--job', help='job to be done', default='train', type=str, required=False, choices=JOBS)
+    parser.add_argument('--job', help='job to be done', default='play', type=str, required=False, choices=JOBS)
     parser.add_argument('-n', '--n-timesteps', help='Overwrite the number of timesteps', default=int(1e6), type=int)
     parser.add_argument('--log-interval', help='Override log interval (default: -1, no change)', default=-1, type=int)
     parser.add_argument('--save-interval', help='Number of timestamps between model saves', default=2000, type=int)
